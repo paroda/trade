@@ -1,0 +1,12 @@
+*.log
+.nrepl-port
+.rebel_readline_history
+.cpcache
+/sdk
+/workspace
+/History
+nohup.out
+repl-demo.sh
+run-demo.sh
+repl-real.sh
+run-real.sh

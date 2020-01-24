@@ -1,0 +1,9 @@
+{:paths ["src"]
+
+ :deps {org.clojure/clojure {:mvn/version "1.10.3"}
+        org.clojure/data.csv {:mvn/version "1.0.1"}
+        com.hypirion/clj-xchart {:mvn/version "0.2.0"}
+        cfft/cfft {:mvn/version "0.1.0"}}
+
+ :aliases
+ {}}
