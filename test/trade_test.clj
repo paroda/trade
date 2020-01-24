@@ -2,7 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [trade :as trade]))
 
-(deftest unused-functions
+(deftest test-misc
   (testing "* note-closed-ventures: in-future"
     (is (= 0 (trade/note-closed-ventures 0)))))
 
