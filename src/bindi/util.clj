@@ -4,6 +4,10 @@
             [clojure.java.io :as io])
   (:import java.text.SimpleDateFormat))
 
+(defn round [v n]
+  (let [m (Math/pow 10.0 ^:Double n)]
+    (/ (Math/round (* m v)) m)))
+
 (defn remove-items
   "Remove specified items by matching the specified key (by default :id)"
   ([items items-to-remove] (remove-items items items-to-remove :id))

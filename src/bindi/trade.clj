@@ -19,6 +19,20 @@ Returns updated wealth."
                                 (map :cost)
                                 (reduce +))))))
 
+(defn- update-terminated-ventures [current-wealth terminated-ventures]
+  (let [[credit profit] (->> terminated-ventures
+                             (map (juxt :credit :profit))
+                             (reduce #(map + %1 %2) [0 0]))]
+    (-> current-wealth
+        (update :terminated into 
+                (->> terminated-ventures
+                     (map #(select-keys % [:mode :symbol :cost :profit
+                                           :open-time, :close-time
+                                           :open-price, :close-price]))))
+        (update :ventures u/remove-items terminated-ventures)
+        (update :balance + credit)
+        (update :profit + profit))))
+
 (defn register-broker-terminations
   "Get terminated ventures from broker.
 Returns updated wealth."
@@ -26,11 +40,9 @@ Returns updated wealth."
   (let [{:keys [ventures]
          {:keys [check]} :broker} current-wealth
         terminated-ventures (check ventures)]
-    (-> current-wealth
-        (update :ventures u/remove-items terminated-ventures)
-        (update :balance + (->> terminated-ventures
-                                (map :credit)
-                                (reduce +))))))
+    (cond-> current-wealth
+      (seq terminated-ventures)
+      (update-terminated-ventures terminated-ventures))))
 
 (defn evaluate-and-terminate
   "Evaluate ventures and terminate bad ventures.
@@ -39,14 +51,10 @@ Returns updated wealth."
   (let [{:keys [evaluate]
          {:keys [terminate]} :broker} current-wealth
         bad-ventures (evaluate current-wealth prices)
-        terminated-ventures (terminate bad-ventures)
-        [credit profit] (->> terminated-ventures
-                             (map (juxt :credit :profit))
-                             (reduce #(map + %1 %2) [0 0]))]
-    (-> current-wealth
-        (update :ventures u/remove-items terminated-ventures)
-        (update :balance + credit)
-        (update :profit + profit))))
+        terminated-ventures (terminate bad-ventures)]
+    (cond-> current-wealth
+      (seq terminated-ventures)
+      (update-terminated-ventures terminated-ventures))))
 
 (defn track-wealth
   "Check current balance and update historical data.
@@ -68,22 +76,19 @@ Returns updated wealth."
 :balance = balance
 :min-balance, :max-balance = minimum and maximum balance in the past
 :ventures = active ventures
-  {:mode = buy/sell :buy or :sell
-   :id, :scout-id, :symbol
-   :status = :prospect, :venture, :terminated
-   :quantity, :stop-loss-price, :target-price
-   :order-price, :cost
-   :terminate-price, :credit
-   :profit}
+  [{:mode = buy/sell :buy or :sell
+    :id, :scout-id, :symbol
+    :status = :prospect, :venture, :terminated
+    :chance = chances of success (0 to 1), applies to prospect
+    :quantity, :stop-loss-price, :target-price
+    :open-time, :open-price, :cost
+    :close-time, :close-price, :credit, :profit}]
+:terminated = terminated ventures
 :data = general purpose atom for use by stateful methods
 
 *prices* map of symbol to price
 :t = time
-:b = brokerage
-:o, :h, :l, :c = price variants
-:open-price = price to order venture (includes brokerage)
-:close-price = price to terminate venture (includes brokerage)
-"
+:o, :h, :l, :c = price variants"
   [wealth prices]
   (-> wealth
       (register-broker-terminations)
@@ -100,4 +105,5 @@ Returns updated wealth."
    :balance 0, :profit 0
    :max-balance 0, :min-balance 0
    :ventures []
+   :terminated []
    :data (atom {})})

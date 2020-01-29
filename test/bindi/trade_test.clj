@@ -20,11 +20,13 @@
     (letfn [(check [vs] (filter :credit vs))]
       (is (= {:ventures [{:id 1}]
               :broker {:check check}
-              :balance 50}
+              :balance 50, :profit 20}
              (tr/register-broker-terminations
-              {:ventures [{:id 1} {:id 2, :credit 20} {:id 3, :credit 30}]
+              {:ventures [{:id 1}
+                          {:id 2, :credit 20, :profit 10}
+                          {:id 3, :credit 30, :profit 10}]
                :broker {:check check}
-               :balance 0}))))))
+               :balance 0, :profit 0}))))))
 
 (deftest test-evaluate-and-terminate
   (testing "* test evaluate-and-terminate"

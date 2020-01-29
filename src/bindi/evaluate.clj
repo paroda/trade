@@ -3,17 +3,10 @@
 (defn won-lost-simulator
   "buy order is won when price goes above target-price.
 buy order is lost when price goes below stop-loss-price.
-Actual closing price of buy order is either target price,
-or the starting price if it starts higher than target-price.
-
 sell order is won when price goes below target-price.
-sell order is lost when price goes above stop-loss-price.
-Actual closing price of sell order is either the target price,
-or the starting price if it starts lower than target-price.
-
-Brokerage is applied to the closing price."
+sell order is lost when price goes above stop-loss-price."
   [{:keys [symbol mode target-price stop-loss-price] :as venture} prices]
-  (let [{:keys [o h l b] :as price} (get prices symbol)]
+  (let [{:keys [t o h l]} (get prices symbol)]
     (if-let [p (case mode
                  ;; buy order, sell out to close
                  :buy (if (>= h target-price)
@@ -25,23 +18,17 @@ Brokerage is applied to the closing price."
                          (min o target-price)
                          (if (>= h stop-loss-price)
                            (max o stop-loss-price))))]
-      (assoc venture :terminate-price
-             (assoc price :close-price
-                    (case mode
-                      ;; buy order, effective sell price reduced by brokerage
-                      :buy (- p b)
-                      ;; sell order, effective buy price increased by brokerage
-                      :sell (+ p b)))))))
+      (assoc venture :close-time t, :close-price p))))
 
-;; evaluator returns ventures with terminate-price if deemed bad to continue
+;; evaluator returns ventures if deemed bad to continue
 ;; otherise returns nil, when all ventures considered good to continue further
 (def evaluators [won-lost-simulator])
 
 (defn make-evaluate
-  "Returns an evaluate function based on given evaluators.
+  "Returns an evaluate function based on given evaluators. It considers a
+venture to be bad if at least one of the given evaluator considers it bad.
 =evaluate= returned function
-Evaluate ventures and add a termination-price to 
-ventures bad for further continuation
+Evaluate ventures and returns those bad for further continuation
 so that those could be closed to optimize profit.
 Returns bad ventures."
   [evaluators]

@@ -10,29 +10,28 @@
         p3 {:a {:h 15, :l 15, :o 15, :b 1}}
         p4 {:a {:h 15, :l 1, :o 5, :b 1}}
         p5 {:a {:h 15, :l 1, :o 15, :b 1}}
-        f #(assoc %1 :terminate-price
-                  (assoc (get %2 (:symbol %1)) :close-price %3))]
+        f #(assoc %1 :close-time nil, :close-price %2)]
     (testing "* won or lost buy ventures"
-      (is (= (f vb p1 19)
+      (is (= (f vb 20)
              (ev/won-lost-simulator vb p1)))
-      (is (= (f vb p2 24)
+      (is (= (f vb 25)
              (ev/won-lost-simulator vb p2)))
       (is (= nil
              (ev/won-lost-simulator vb p3)))
-      (is (= (f vb p4 4)
+      (is (= (f vb 5)
              (ev/won-lost-simulator vb p4)))
-      (is (= (f vb p5 9)
+      (is (= (f vb 10)
              (ev/won-lost-simulator vb p5))))
     (testing "* won or lost sell ventures"
-      (is (= (f vs p1 21)
+      (is (= (f vs 20)
              (ev/won-lost-simulator vs p1)))
-      (is (= (f vs p2 26)
+      (is (= (f vs 25)
              (ev/won-lost-simulator vs p2)))
       (is (= nil
              (ev/won-lost-simulator vs p3)))
-      (is (= (f vs p4 6)
+      (is (= (f vs 5)
              (ev/won-lost-simulator vs p4)))
-      (is (= (f vs p5 11)
+      (is (= (f vs 10)
              (ev/won-lost-simulator vs p5))))))
 
 (deftest test-evaluate

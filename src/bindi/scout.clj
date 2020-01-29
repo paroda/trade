@@ -6,18 +6,23 @@
 (defn- weigh
   "Weigh several prospects for a symbol and return a single prospect."
   [prospects price]
-  (let [wfn #(->> % (map :weight) (reduce +))
+  (let [wfn #(->> %
+                  (map (fn [{:keys [chance weight]}]
+                         [(* chance weight) weight]))
+                  (apply map list)
+                  (map (partial reduce +))
+                  (apply /)
+                  (double))
         ;; buy prospects
         bs (filter #(= :buy (:mode %)) prospects)
-        bw (wfn bs)
+        bw (if (seq bs) (wfn bs) 0)
         ;; sell-prospects
         ss (filter #(= :sell (:mode %)) prospects)
-        sw (wfn ss)
+        sw (if (seq ss) (wfn ss) 0)
         ;; decide buy or sell
-        mode (if (pos? (max bw sw))
-               (if (> bw sw) :buy :sell))
-        ps (case mode :buy bs, :sell ss, nil)]
-    (if mode
+        [mode ps] (if (> bw sw) [:buy bs] [:sell ss])
+        chance (max bw sw)]
+    (if (> chance 0.5)
       (let [;; decide quantity, target-price, stop-price
             [ws qs tps slps] (->> ps
                                   (map (juxt :weight :quantity :target-price :stop-loss-price))
@@ -29,21 +34,17 @@
             ;; check sanity
             ;; * price within target-price and stop-loss-price
             ;; * target margin at least thrice stop-loss margin
-            {:keys [c b]} price
+            {:keys [t c]} price
             sane? (case mode
                     :buy (and (> tp c slp)
-                              (> (- tp c) (* 3 (max b (- c slp)))))
+                              (> (- tp c) (* 3 (- c slp))))
                     :sell (and (> slp c tp)
-                               (> (- c tp) (* 3 (max b (- slp c))))))]
+                               (> (- c tp) (* 3 (- slp c)))))]
         (if sane?
-          (let [;; price with brokerage
-                p (case mode
-                    :buy (+ c b)
-                    :sell (- c b))]
-            {:status :prospect
-             :mode mode, :quantity q
-             :target-price tp, :stop-loss-price slp
-             :order-price (assoc price :open-price p)}))))))
+          {:status :prospect, :chance chance
+           :mode mode, :quantity q
+           :target-price tp, :stop-loss-price slp
+           :open-time t, :open-price c})))))
 
 (defn make-scout
   "Returns a scout function combining given scouts and their weights.
@@ -80,18 +81,19 @@ Returns prospects (only one prospect for each symbol)."
                           (- (.getTime t)
                              (get-in @d [scout-id :lts] 0))))
         (swap! d assoc-in [scout-id :lts] (.getTime t))
-        [{:mode mode, :quantity quantity
+        [{:chance 1
+          :mode mode, :quantity quantity
           :stop-loss-price ((case mode :buy - :sell +) c stop-loss-margin)
           :target-price ((case mode :buy + :sell -) c target-margin)
           :symbol symbol, :scout-id scout-id}]))))
 
-(def a1 (make-daily-scout :eur-usd :a1 :buy 10 0.00500 0.05000))
-(def a2 (make-daily-scout :eur-usd :a2 :sell 10 0.00500 0.05000))
+(def a1 (make-daily-scout :eur-usd :a1 :buy 10 0.00100 0.01000))
+(def a2 (make-daily-scout :eur-usd :a2 :sell 10 0.00100 0.01000))
 
-;; scout returns prospects with order-price for probable profit
+;; scout returns prospects
 ;; returns nil if nothing found profitable
-;; A prospect has :mode, :quantity, :target-price, :stop-loss-price
-;; The order-price has :open-price which includes brokerage
+;; A prospect has :chance, :mode, :quantity, :target-price, :stop-loss-price
+;; The chance is a number between 0 and 1 indicating chances of profit
 ;; The prospect also has :id, :scout-id and :symbol for identification
 (def scouts [a1 a2])
 
