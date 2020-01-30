@@ -38,3 +38,14 @@ separator = by default comma(,)
                     :l (Double/parseDouble l)
                     :o (Double/parseDouble o)
                     :c (Double/parseDouble c)}))))))
+
+(defn write-terminated-to-csv [path terminated-ventures]
+  (with-open [w (io/writer path)]
+    (->> terminated-ventures
+         (map (fn [{:keys [mode symbol cost profit
+                           open-time, close-time
+                           open-price, close-price]}]
+                [mode symbol cost profit
+                 open-time, close-time
+                 open-price, close-price]))
+         (csv/write-csv w))))

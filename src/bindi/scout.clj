@@ -68,33 +68,3 @@ Returns prospects (only one prospect for each symbol)."
                                :scout-id id
                                :id (new-prospect-id)))))
          (remove nil?))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; example scout function
-
-(defn make-daily-scout [symbol scout-id mode quantity
-                        stop-loss-margin target-margin]
-  (fn [current-wealth prices]
-    (let [{:keys [t c]} (get prices symbol)
-          d (:data current-wealth)]
-      (when (and t c d (< (* 24 3600e3)
-                          (- (.getTime t)
-                             (get-in @d [scout-id :lts] 0))))
-        (swap! d assoc-in [scout-id :lts] (.getTime t))
-        [{:chance 1
-          :mode mode, :quantity quantity
-          :stop-loss-price ((case mode :buy - :sell +) c stop-loss-margin)
-          :target-price ((case mode :buy + :sell -) c target-margin)
-          :symbol symbol, :scout-id scout-id}]))))
-
-(def a1 (make-daily-scout :eur-usd :a1 :buy 10 0.00100 0.01000))
-(def a2 (make-daily-scout :eur-usd :a2 :sell 10 0.00100 0.01000))
-
-;; scout returns prospects
-;; returns nil if nothing found profitable
-;; A prospect has :chance, :mode, :quantity, :target-price, :stop-loss-price
-;; The chance is a number between 0 and 1 indicating chances of profit
-;; The prospect also has :id, :scout-id and :symbol for identification
-(def scouts [a1 a2])
-
-(def weights {:eur-usd {:a1 1}})

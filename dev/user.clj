@@ -3,7 +3,8 @@
             [bindi.trade :as tr]
             [bindi.broker :as br]
             [bindi.scout :as sc]
-            [bindi.evaluate :as ev]))
+            [bindi.evaluate :as ev]
+            [bindi.util :as u]))
 
 (defn my-scout [current-wealth prices]
   (let [id :b
@@ -34,18 +35,38 @@
   (def d2019 (->> "data/2019-eurusd.edn" slurp edn/read-string))
 
   (let [scouts [sc/a1]
-        weights {:eur-usd {:b 1, :a1 1, :a2 1}}
+        weights {:eur-usd {:a1 1, :a2 1}}
         wealth (-> (tr/new-wealth)
                    (assoc :scout (sc/make-scout :a scouts weights)
                           :evaluate (ev/make-evaluate ev/evaluators)
                           :broker (br/get-simulated-broker br/symbols-data-simulated)))
-        b 0.00010
         wealth
         (->> d2019
              (map #(hash-map :eur-usd %))
              (reduce tr/trade wealth))]
     [(count (:ventures wealth))
-     (select-keys (:b @(:data wealth)) [:bn :sn])
-     (select-keys wealth [:profit :balance :max-balance :min-balance])])
+     (select-keys wealth [:profit :balance :max-balance :min-balance])
+     (count (:terminated wealth))])
+  
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; file contains multiple symbols
+  (def d7 (->> "data/2017-3.edn" slurp edn/read-string))
+  (def d8 (->> "data/2018-3.edn" slurp edn/read-string))
+  (def d9 (->> "data/2019-3.edn" slurp edn/read-string))
+  
+  (require 'example)
+  (let [price-series d8
+        scouts [example/a1]
+        weights {:eur-usd {:a1 1, :a2 1}
+                 :eur-gbp {:a1 1, :a2 1}
+                 :gbp-usd {:a1 1, :a2 1}}
+        wealth (-> (tr/new-wealth)
+                   (assoc :scout (sc/make-scout :a scouts weights)
+                          :evaluate (ev/make-evaluate ev/evaluators)
+                          :broker (br/get-simulated-broker br/symbols-data-simulated)))
+        wealth (reduce tr/trade wealth price-series)]
+    [(count (:ventures wealth))
+     (select-keys wealth [:profit :balance :max-balance :min-balance])
+     (count (:terminated wealth))])
   
   )

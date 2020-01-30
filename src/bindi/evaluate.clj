@@ -6,7 +6,7 @@ buy order is lost when price goes below stop-loss-price.
 sell order is won when price goes below target-price.
 sell order is lost when price goes above stop-loss-price."
   [{:keys [symbol mode target-price stop-loss-price] :as venture} prices]
-  (let [{:keys [t o h l]} (get prices symbol)]
+  (if-let [{:keys [t o h l]} (get prices symbol)]
     (if-let [p (case mode
                  ;; buy order, sell out to close
                  :buy (if (>= h target-price)
