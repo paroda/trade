@@ -1,9 +1,9 @@
 {:paths ["resources" "src"]
- :deps {org.clojure/clojure {:mvn/version "RELEASE"}
+ :deps {org.clojure/clojure {:mvn/version "1.10.1"}
         org.clojure/data.csv {:mvn/version "0.1.4"}
 
-        com.fzakaria/slf4j-timbre {:mvn/version "0.3.13"}
-        org.slf4j/slf4j-api {:mvn/version "1.7.26"}
+        com.fzakaria/slf4j-timbre {:mvn/version "0.3.19"}
+        org.slf4j/slf4j-api {:mvn/version "1.7.30"}
         com.taoensso/timbre {:mvn/version "4.10.0"}
 
         com.hypirion/clj-xchart {:mvn/version "0.2.0"}}

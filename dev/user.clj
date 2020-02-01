@@ -1,5 +1,6 @@
 (ns user
   (:require [clojure.edn :as edn]
+            [taoensso.timbre :as log]
             [bindi.config :as cfg]
             [bindi.trade :as tr]
             [bindi.broker :as br]

@@ -4,7 +4,8 @@
             O2GRequest O2GResponse IO2GResponseListener
             O2GCandleOpenPriceMode]
            [java.util Calendar Date SimpleTimeZone])
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [taoensso.timbre :as log]))
 
 (defprotocol session-protocol
   "*login-params* {:login \"\"
@@ -47,7 +48,7 @@
              ;; implement status listener
              IO2GSessionStatus
              (onSessionStatusChanged [this status]
-               (println "Status:" (str status))
+               (log/info "Status:" (str status))
                (case (str status)
                  "TRADING_SESSION_REQUESTED"
                  (let [{:keys [session-id pin]
@@ -67,7 +68,7 @@
                  nil)
                nil)
              (onLoginFailed [this err]
-               (println "Login error:" err)))]
+               (log/error "Login error:" err)))]
     (.subscribeSessionStatus session me)
     me))
 
@@ -96,8 +97,8 @@
              (^void onRequestFailed [this ^String req-id ^String err]
               (when (= (:req-id @state) req-id)
                 (if (str/blank? err)
-                  (println "There is no more data for req:" req-id)
-                  (println "Failed req:" req-id ", err:" err))
+                  (log/info "There is no more data for req:" req-id)
+                  (log/warn "Failed req:" req-id ", err:" err))
                 (deliver (:promise @state) false))
               nil)
              (^void onTablesUpdates [this ^O2GResponse res] nil))]
@@ -144,7 +145,7 @@
                    o? (= (:t (last ps1)) (:t (first ps)))
                    ps1 (if o? (butlast ps1) ps1)
                    ps (concat ps1 ps)]
-              (println "got hist prices: done" (.size r) (count ps1) dto)
+              (log/info "got hist prices: done" (.size r) (count ps1) dto)
               (if (and (seq ps1) (.after dto dfrom))
                 ;; partial result, repeat
                 (recur dto ps)
@@ -182,9 +183,9 @@
                              (SimpleTimeZone. SimpleTimeZone/UTC_TIME "UTC"))
                         (.clear) (.set (inc y) 0 1)))
         ps (get-hist-prices session inst "m1" dfrom dto)]
-    (println "total count" (count ps) "from:" (first ps) "to:" (last ps))
+    (log/info "total count" (count ps) "from:" (first ps) "to:" (last ps))
     (spit out ps)
-    (println "wrote to file:" out))
+    (log/info "wrote to file:" out))
 
   (logout session)
 
