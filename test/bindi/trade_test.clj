@@ -19,6 +19,7 @@
   (testing "* test register-broker-terminations"
     (letfn [(check [vs] (filter :credit vs))]
       (is (= {:ventures [{:id 1}]
+              :terminated [{:profit 10} {:profit 10}]
               :broker {:check check}
               :balance 50, :profit 20}
              (tr/register-broker-terminations
@@ -33,6 +34,7 @@
     (letfn [(evaluate [_ _] [{:id 2} {:id 3}])
             (terminate [vs] (map #(assoc % :credit 100, :profit 10) vs))]
       (is (= {:evaluate evaluate, :broker {:terminate terminate}
+              :terminated [{:profit 10} {:profit 10}]
               :ventures [{:id 1}]
               :balance 200, :profit 20}
              (tr/evaluate-and-terminate

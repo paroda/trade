@@ -1,0 +1,7 @@
+{:workspace "workspace"
+ :fxcm {:url "www.fxcorporate.com/Hosts.jsp"
+        :login ""
+        :password ""
+        :connection "demo"
+        :session-id ""
+        :pin ""}}

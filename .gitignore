@@ -2,4 +2,5 @@
 .nrepl-port
 .rebel_readline_history
 .cpcache
-/data
+/sdk
+/workspace

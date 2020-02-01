@@ -1,4 +1,5 @@
-(ns misc)
+(ns misc
+  (:require [clojure.edn :as edn]))
 
 ;; *ds* : map of symbol to price-series
 (defn merge-price-series [ds]
@@ -19,4 +20,19 @@
     {:b {:t 2, :p 2}}
     {:b {:t 9, :p 9}, :c {:t 9, :p 9}}
     {:a {:t 10, :p 10}}])
+
+
+  (let [y 2019
+        f (fn [s]
+            (let [ps (-> "workspace/data/%s-%d.edn"
+                         (format (name s) y)
+                         slurp
+                         edn/read-string)]
+              {s ps}))
+        ds (merge (f :eur-usd)
+                  (f :eur-gbp)
+                  (f :gbp-usd))]
+    (spit (format "workspace/data/%d.edn" y)
+          (merge-price-series ds)))
+
   )

@@ -1,5 +1,6 @@
 (ns user
   (:require [clojure.edn :as edn]
+            [bindi.config :as cfg]
             [bindi.trade :as tr]
             [bindi.broker :as br]
             [bindi.scout :as sc]
@@ -30,9 +31,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (comment
-  (def d2017 (->> "data/2017-eurusd.edn" slurp edn/read-string))
-  (def d2018 (->> "data/2018-eurusd.edn" slurp edn/read-string))
-  (def d2019 (->> "data/2019-eurusd.edn" slurp edn/read-string))
+
+  (def d2017 (->> "workspace/data/eur-usd-2017.edn" slurp edn/read-string))
+  (def d2018 (->> "workspace/data/eur-usd-2018.edn" slurp edn/read-string))
+  (def d2019 (->> "workspace/data/eur-usd-2019.edn" slurp edn/read-string))
 
   (let [scouts [sc/a1]
         weights {:eur-usd {:a1 1, :a2 1}}
@@ -47,15 +49,15 @@
     [(count (:ventures wealth))
      (select-keys wealth [:profit :balance :max-balance :min-balance])
      (count (:terminated wealth))])
-  
+
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; file contains multiple symbols
-  (def d7 (->> "data/2017-3.edn" slurp edn/read-string))
-  (def d8 (->> "data/2018-3.edn" slurp edn/read-string))
-  (def d9 (->> "data/2019-3.edn" slurp edn/read-string))
-  
+  (def d7 (->> "workspace/data/2017.edn" slurp edn/read-string))
+  (def d8 (->> "workspace/data/2018.edn" slurp edn/read-string))
+  (def d9 (->> "workspace/data/2019.edn" slurp edn/read-string))
+
   (require 'example)
-  (let [price-series d8
+  (let [price-series d9
         scouts [example/a1]
         weights {:eur-usd {:a1 1, :a2 1}
                  :eur-gbp {:a1 1, :a2 1}
@@ -68,5 +70,5 @@
     [(count (:ventures wealth))
      (select-keys wealth [:profit :balance :max-balance :min-balance])
      (count (:terminated wealth))])
-  
+
   )

@@ -1,10 +1,24 @@
 {:paths ["resources" "src"]
  :deps {org.clojure/clojure {:mvn/version "RELEASE"}
-		org.clojure/data.csv {:mvn/version "0.1.4"}}
- :aliases {:dev {:extra-paths ["dev"]}
-           
-           :test {:extra-paths ["test"]}
-           
-           :rebel {:extra-deps {com.bhauman/rebel-readline {:mvn/version "RELEASE"}}
-                   :main-opts ["-m" "rebel-readline.main"]}
-           }}
+        org.clojure/data.csv {:mvn/version "0.1.4"}
+
+        com.fzakaria/slf4j-timbre {:mvn/version "0.3.13"}
+        org.slf4j/slf4j-api {:mvn/version "1.7.26"}
+        com.taoensso/timbre {:mvn/version "4.10.0"}
+
+        com.hypirion/clj-xchart {:mvn/version "0.2.0"}}
+ :aliases
+ {:dev {:extra-paths ["dev"]}
+
+  :test {:extra-paths ["test"]}
+
+  :rebel {:extra-deps {com.bhauman/rebel-readline {:mvn/version "RELEASE"}}
+          :main-opts ["-m" "rebel-readline.main"]}
+
+  :fxcm {:extra-deps {com.fxcm/fxcore2
+                      {:local/root "sdk/fxcm-1.6.3/bin/java/fxcore2.jar"}}
+         :extra-paths ["fxcm"]
+         ;; this sometime doesn't work on windows. workaround is to add these
+         ;; path to PATH environment variable before starting the repl
+         :jvm-opts ["-Djava.library.path=sdk/fxcm-1.6.3/bin;sdk/fxcm-1.6.3/bin/java"]}
+  }}
