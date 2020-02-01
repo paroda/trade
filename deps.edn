@@ -15,10 +15,15 @@
   :rebel {:extra-deps {com.bhauman/rebel-readline {:mvn/version "RELEASE"}}
           :main-opts ["-m" "rebel-readline.main"]}
 
-  :fxcm {:extra-deps {com.fxcm/fxcore2
-                      {:local/root "sdk/fxcm-1.6.3/bin/java/fxcore2.jar"}}
-         :extra-paths ["fxcm"]
-         ;; this sometime doesn't work on windows. workaround is to add these
-         ;; path to PATH environment variable before starting the repl
-         :jvm-opts ["-Djava.library.path=sdk/fxcm-1.6.3/bin;sdk/fxcm-1.6.3/bin/java"]}
+  :fxcm-windows {:extra-deps {com.fxcm/fxcore2
+                              {:local/root "sdk/fxcm-1.6.3/bin/java/fxcore2.jar"}}
+                 :extra-paths ["fxcm"]
+                 ;; this sometime doesn't work on windows. workaround is to add these
+                 ;; path to PATH environment variable before starting the repl
+                 :jvm-opts ["-Djava.library.path=sdk/fxcm-1.6.3/bin;sdk/fxcm-1.6.3/bin/java"]}
+
+  :fxcm-linux {:extra-deps {com.fxcm/fxcore2
+                            {:local/root "sdk/fxcm-1.6.3/lib/java/fxcore2.jar"}}
+               :extra-paths ["fxcm"]
+               :jvm-opts ["-Djava.library.path=sdk/fxcm-1.6.3/lib:sdk/fxcm-1.6.3/lib/java"]}
   }}

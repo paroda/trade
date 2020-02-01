@@ -145,7 +145,7 @@
                    o? (= (:t (last ps1)) (:t (first ps)))
                    ps1 (if o? (butlast ps1) ps1)
                    ps (concat ps1 ps)]
-              (log/info "got hist prices: done" (.size r) (count ps1) dto)
+              (log/debug "got hist prices: done" (.size r) (count ps1) (pr-str dto))
               (if (and (seq ps1) (.after dto dfrom))
                 ;; partial result, repeat
                 (recur dto ps)
@@ -172,7 +172,7 @@
                  (:demo (->> "workspace/fxcm.edn" slurp clojure.edn/read-string)))]
     (login session p))
 
-  (let [y 2017
+  (let [y 2020
         inst "GBP/USD"
         sym (.toLowerCase (clojure.string/replace inst "/" "-"))
         out (format "workspace/data/%s-%d.edn" sym y)
