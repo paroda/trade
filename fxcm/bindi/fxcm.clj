@@ -1,8 +1,12 @@
 (ns bindi.fxcm
   (:import [java.text SimpleDateFormat]
-           [com.fxcore2 O2GSession O2GTransport IO2GSessionStatus
+           [com.fxcore2
+            O2GSession O2GTransport IO2GSessionStatus
             O2GRequest O2GResponse IO2GResponseListener
-            O2GCandleOpenPriceMode]
+            O2GRequestFactory O2GResponseReaderFactory
+            O2GOrdersTableResponseReader O2GTradesTableResponseReader
+            O2GAccountRow O2GOrderRow O2GTradeRow
+            O2GCandleOpenPriceMode O2GTableType O2GHtmlContentUtils]
            [java.util Calendar Date SimpleTimeZone])
   (:require [clojure.string :as str]
             [taoensso.timbre :as log]))
@@ -162,6 +166,109 @@
           (stop listener)
           (vec ps))))))
 
+(defn get-accounts [session]
+  (let [bs (base session)
+        lr (.getLoginRules bs)
+        rf (.getResponseReaderFactory bs)
+        ares (.getTableRefreshResponse lr O2GTableType/ACCOUNTS)
+        ardr (.createAccountsTableReader rf ares)]
+    (vec
+     (for [i (range (.size ardr))]
+       (let [a ^O2GAccountRow (.getRow ardr i)]
+         {:id (.getAccountID a)
+          :limit (.getAmountLimit a)
+          :balance (.getBalance a)})))))
+
+(defn get-orders
+  "Get pending orders"
+  [session account-id]
+  (let [bs ^O2GSession (base session)
+        listener (create-listener session)
+        req-fct ^O2GRequestFactory (.getRequestFactory bs)
+        req ^O2GRequest (.createRefreshTableRequestByAccount
+                         req-fct O2GTableType/ORDERS account-id)
+        res ^O2GResponse (request listener req)]
+    (if res
+      (let [rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+            rdr ^O2GOrdersTableResponseReader (.createOrdersTableReader rdr-fct res)]
+        (vec
+         (for [i (range (.size rdr))]
+           (let [o ^O2GOrderRow (.getRow rdr i)]
+             {:id (.getOrderID o)
+              :status (.getStatus o)
+              :action (.getBuySell o)
+              :quantity (.getOriginAmount o)
+              :peg-offset (.getPegOffset o)
+              :rate (.getRate o)
+              :stage (.getStage o) ;; order is placed to open (O) or close (C)
+              :trade-id (.getTradeID o)
+              :type (.getType o)})))))))
+
+(defn get-trades
+  "Get open positions"
+  [session account-id]
+  (let [bs ^O2GSession (base session)
+        listener (create-listener session)
+        req-fct ^O2GRequestFactory (.getRequestFactory bs)
+        req ^O2GRequest (.createRefreshTableRequestByAccount
+                         req-fct O2GTableType/TRADES account-id)
+        res ^O2GResponse (request listener req)]
+    (if res
+      (let [rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+            rdr ^O2GTradesTableResponseReader (.createTradesTableReader rdr-fct res)]
+        (vec
+         (for [i (range (.size rdr))]
+           (let [t ^O2GTradeRow (.getRow rdr i)]
+             {:id (.getTradeID t)
+              :quantiy (.getAmount t)
+              :action (.getBuySell t)
+              :commission (.getCommission t)
+              :order-id (.getOpenOrderID t)
+              :open-rate (.getOpenRate t)})))))))
+
+(defn get-content [^java.net.URL url]
+  (let [conn (.openConnection url)
+        in (java.io.BufferedReader.
+            (java.io.InputStreamReader.
+             (.getInputStream conn)))
+        res (java.lang.StringBuilder.)]
+    (loop [l ""]
+      (-> res
+          (.append l)
+          (.append "\n"))
+      (if l
+        (recur (.readLine in))
+        (.toString res)))))
+
+(defn download-reports [session out-dir]
+  (let [bs (base session)
+        lr (.getLoginRules bs)
+        rf (.getResponseReaderFactory bs)
+        ares (.getTableRefreshResponse lr O2GTableType/ACCOUNTS)
+        ardr (.createAccountsTableReader rf ares)]
+    (doseq [i (range (.size ardr))]
+      (let [a (.getRow ardr i)
+            dfrom (doto (Calendar/getInstance)
+                    (.add Calendar/MONTH -1))
+            url (.getReportURL bs
+                               (.getAccountID a)
+                               dfrom
+                               (Calendar/getInstance)
+                               "html"
+                               nil)
+            fname (str (.getAccountID a) ".html")
+            fname (str out-dir "/" fname)
+            _ (log/info "AccountID:" (.getAccountID a)
+                        ", Balance:" (.getBalance a)
+                        ", Report URL:" url)
+            url (java.net.URL. url)
+            content (get-content url)
+            prefix (format "%s://%s/" (.getProtocol url) (.getHost url))
+            report (O2GHtmlContentUtils/replaceRelativePathWithAbsolute content prefix)]
+        (spit fname report)
+        (log/info "Report is saved to" fname)))
+    (.size ardr)))
+
 (comment
 
   (require 'bindi.config)
@@ -186,6 +293,16 @@
     (log/info "total count" (count ps) "from:" (first ps) "to:" (last ps))
     (spit out ps)
     (log/info "wrote to file:" out))
+
+  (download-reports session "workspace/report")
+
+  (get-accounts session)
+
+  (if-let [aid (:id (first (get-accounts session)))]
+    (get-orders session aid))
+
+  (if-let [aid (:id (first (get-accounts session)))]
+    (get-trades session aid))
 
   (logout session)
 
