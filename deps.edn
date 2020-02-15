@@ -1,6 +1,7 @@
 {:paths ["resources" "src"]
  :deps {org.clojure/clojure {:mvn/version "1.10.1"}
         org.clojure/data.csv {:mvn/version "0.1.4"}
+        org.clojure/core.async {:mvn/version "0.7.559"}
 
         com.fzakaria/slf4j-timbre {:mvn/version "0.3.19"}
         org.slf4j/slf4j-api {:mvn/version "1.7.30"}
@@ -23,8 +24,8 @@
                 com.fxcm/quotesmgr2
                 {:local/root "sdk/fxcm-1.6.3/bin/java/quotesmgr2.jar"}}
    :extra-paths ["fxcm"]
-   ;; this sometime doesn't work on windows. workaround is to add these
-   ;; path to PATH environment variable before starting the repl
+   ;; NOTE: you must also add these paths to the environment
+   ;;       variable PATH before starting the repl
    :jvm-opts ["-Djava.library.path=sdk/fxcm-1.6.3/bin;sdk/fxcm-1.6.3/bin/java"]}
 
   :fxcm-linux
@@ -35,5 +36,7 @@
                 com.fxcm/quotesmgr2
                 {:local/root "sdk/fxcm-1.6.3/lib/java/quotesmgr2.jar"}}
    :extra-paths ["fxcm"]
+   ;; NOTE: you must also add these paths to the environment
+   ;;       variable LD_LIBRARY_PATH before starting the repl
    :jvm-opts ["-Djava.library.path=sdk/fxcm-1.6.3/lib:sdk/fxcm-1.6.3/lib/java"]}
   }}

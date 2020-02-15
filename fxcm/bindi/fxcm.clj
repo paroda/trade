@@ -2,14 +2,15 @@
   (:import [java.text SimpleDateFormat]
            [com.fxcore2
             O2GSession O2GTransport IO2GSessionStatus O2GSessionStatusCode
-            O2GRequest O2GResponse IO2GResponseListener
+            O2GRequest O2GResponse O2GResponseType IO2GResponseListener
             O2GRequestFactory O2GResponseReaderFactory
-            O2GOrdersTableResponseReader O2GTradesTableResponseReader
-            O2GAccountsTableResponseReader O2GMarketDataSnapshotResponseReader
-            O2GClosedTradesTableResponseReader
-            O2GAccountRow O2GOrderRow O2GTradeRow O2GClosedTradeRow
-            O2GTimeframe O2GCandleOpenPriceMode
-            O2GTableType O2GHtmlContentUtils]
+            O2GAccountsTableResponseReader O2GLoginRules
+            O2GOrdersTableResponseReader O2GOffersTableResponseReader
+            O2GClosedTradesTableResponseReader O2GTradesTableResponseReader
+            O2GTablesUpdatesReader O2GMarketDataSnapshotResponseReader
+            O2GAccountRow O2GOrderRow O2GTradeRow O2GClosedTradeRow O2GOfferRow
+            O2GTimeframe O2GCandleOpenPriceMode O2GTableType O2GTableUpdateType
+            O2GTradingSettingsProvider O2GMarketStatus O2GHtmlContentUtils]
            [com.candleworks.pricehistorymgr
             IPriceHistoryCommunicator PriceHistoryError
             IPriceHistoryCommunicatorRequest IPriceHistoryCommunicatorResponse
@@ -19,10 +20,99 @@
   (:require [clojure.string :as str]
             [taoensso.timbre :as log]))
 
+;; map of instrument id or key to instrument info
+;; instrument info example: {:iid "1", :iname "EUR/USD", :ikey :eur-usd}
+(defonce ^:private instrument-map (atom nil))
+
+(defn- make-hash-map [keys vals]
+  (->> (interleave keys vals)
+       (apply hash-map)))
+
+(defn- build-instrument-map [ikey-iname iid-iname]
+  (let [m (make-hash-map (vals ikey-iname) (keys ikey-iname))]
+    (->> iid-iname
+         (mapcat (fn [[iid iname]]
+                   (if-let [ikey (get m iname)]
+                     (let [m {:iid iid, :iname iname, :ikey ikey}]
+                       [[iid m] [ikey m]]))))
+         (into {}))))
+
+(comment
+  (= (build-instrument-map {:eur-usd "EUR/USD", :eur-gbp "EUR/GBP"}
+                           {"1" "EUR/USD", "2" "EUR/GBP"})
+     {"1" {:iid "1", :iname "EUR/USD", :ikey :eur-usd}
+      "2" {:iid "2", :iname "EUR/GBP", :ikey :eur-gbp}
+      :eur-usd {:iid "1", :iname "EUR/USD", :ikey :eur-usd}
+      :eur-gbp {:iid "2", :iname "EUR/GBP", :ikey :eur-gbp}})
+  )
+
 (defn ->Calendar [^Date date-time]
   (doto (Calendar/getInstance
          (SimpleTimeZone. SimpleTimeZone/UTC_TIME "UTC"))
     (.setTime date-time)))
+
+(defn- parse-offer-row [^O2GOfferRow o]
+  (if-let [k (if (.isOfferIDValid o)
+               (:ikey (get @instrument-map (.getOfferID o))))]
+    (->> [(if (.isTimeValid o) [:t (some-> o .getTime .getTime)])
+          (if (.isAskValid o) [:a (.getAsk o)])
+          (if (.isBidValid o) [:b (.getBid o)])
+          (if (.isPointSizeValid o) [:pip (.getPointSize o)])
+          ;; the volume is of the current minute
+          (if (.isVolumeValid o) [:v (.getVolume o)])]
+         (remove nil?)
+         (into {:id k}))))
+
+(defn- parse-account-row [^O2GAccountRow a]
+  {:id (.getAccountID a)
+   :limit (.getAmountLimit a)
+   :balance (.getBalance a)})
+
+(defn- parse-order-row [^O2GOrderRow o]
+  {:id (.getOrderID o)
+   :aid (.getAccountID o)
+   :ikey (:ikey (get @instrument-map (.getOfferID o)))
+   :mode ({"S" :sell, "B" :buy} (.getBuySell o))
+   :quantity (.getOriginAmount o)
+   :closing? (= "C" (.getStage o))
+   :status (.getStatus o)
+   :peg-offset (.getPegOffset o)
+   :rate (.getRate o)
+   :trade-id (.getTradeID o)
+   :type (.getType o)})
+
+(defn- parse-trade-row [^O2GTradeRow t]
+  {:id (.getTradeID t)
+   :aid (.getAccountID t)
+   :ikey (:ikey (get @instrument-map (.getOfferID t)))
+   :mode ({"S" :sell, "B" :buy} (.getBuySell t))
+   :quantity (.getAmount t)
+   :fee (.getCommission t)
+   :open-order-id (.getOpenOrderID t)
+   :open-price (.getOpenRate t)
+   :open-time (some-> t .getOpenTime .getTime)})
+
+(defn- parse-closed-trade-row [^O2GClosedTradeRow t]
+  {:id (.getTradeID t)
+   :aid (.getAccountID t)
+   :ikey (:ikey (get @instrument-map (.getOfferID t)))
+   :mode ({"S" :sell, "B" :buy} (.getBuySell t))
+   :quantity (.getAmount t)
+   :fee (.getCommission t)
+   :profit (.getGrossPL t)
+   :open-order-id (.getOpenOrderID t)
+   :open-price (.getOpenRate t)
+   :open-time (some-> t .getOpenTime .getTime)
+   :close-order-id (.getCloseOrderID t)
+   :close-price (.getCloseRate t)
+   :close-time (some-> t .getCloseTime .getTime)})
+
+(defn- collect-candles [^O2GMarketDataSnapshotResponseReader reader]
+  (if (.isBar reader)
+    (vec (for [i (range (.size reader))]
+           {:t (.getTime (.getDate reader i)), :v (.getVolume reader i)
+            :o (.getBidOpen reader i), :c (.getBidClose reader i)
+            :h (.getBidHigh reader i), :l (.getBidLow reader i)}))))
 
 (defprotocol session-protocol
   "*login-params* {:login \"\"
@@ -38,7 +128,11 @@
   (base [this])
   (request [this req]))
 
-(defn create-session []
+(defn create-session
+  "*handle-update* (fn [action type data])
+  -- action = :insert, :update or :delete
+  -- type = :account, :offer, :order, :trade, :closed-trade"
+  [handle-update]
   (let [session ^O2GSession (O2GTransport/createSession)
         state (atom {:connected? false})
         promises (atom {:status nil, :request {}})
@@ -55,7 +149,42 @@
                         (log/info "There is no more data for req:" req-id)
                         (log/warn "Failed req:" req-id ", err:" err))
                       (res-fn req-id nil))
-                     (^void onTablesUpdates [this ^O2GResponse res] nil)))
+                     (^void onTablesUpdates [this ^O2GResponse res]
+                      (if (= (.getType res) O2GResponseType/TABLES_UPDATES)
+                        (let [rdr-fct ^O2GResponseReaderFactory
+                              (.getResponseReaderFactory session)
+                              rdr ^O2GTablesUpdatesReader
+                              (.createTablesUpdatesReader rdr-fct res)]
+                          (doseq [i (range (.size rdr))]
+                            (when-let [t (case (str (.getUpdateType rdr i))
+                                           "INSERT" :insert
+                                           "UPDATE" :update
+                                           "DELETE" :delete
+                                           ;; unlikely
+                                           nil)]
+                              (case (str (.getUpdateTable rdr i))
+                                "OFFERS"
+                                (some->> (.getOfferRow rdr i)
+                                         parse-offer-row
+                                         (handle-update t :offer))
+                                "ACCOUNTS"
+                                (->> (.getAccountRow rdr i)
+                                     parse-account-row
+                                     (handle-update t :account))
+                                "ORDERS"
+                                (->> (.getOrderRow rdr i)
+                                     parse-order-row
+                                     (handle-update t :order))
+                                "TRADES"
+                                (->> (.getTradeRow rdr i)
+                                     parse-trade-row
+                                     (handle-update t :trade))
+                                "CLOSED_TRADES"
+                                (->> (.getClosedTradeRow rdr i)
+                                     parse-closed-trade-row
+                                     (handle-update t :closed-trade))
+                                ;; ignore others
+                                nil))))))))
         me (reify
              ;; make stateful
              clojure.lang.IDeref
@@ -198,25 +327,63 @@
     (.addListener communicator listener)
     me))
 
-(defn collect-candles [reader]
-  (if (.isBar reader)
-    (vec (for [i (range (.size reader))]
-           {:t (.getTime (.getDate reader i)), :v (.getVolume reader i)
-            :o (.getBidOpen reader i), :c (.getBidClose reader i)
-            :h (.getBidHigh reader i), :l (.getBidLow reader i)}))))
+(defn update-instrument-map [session ikey-iname]
+  (let [bs ^O2GSession (base session)
+        lr ^O2GLoginRules (.getLoginRules bs)
+        rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+        res ^O2GResponse (.getTableRefreshResponse lr O2GTableType/OFFERS)
+        rdr ^O2GOffersTableResponseReader (.createOffersTableReader rdr-fct res)
+        iid-iname (->> (for [i (range (.size rdr))]
+                         (let [o ^O2GOfferRow (.getRow rdr i)
+                               iid (if (.isOfferIDValid o) (.getOfferID o))
+                               iname (if (.isInstrumentValid o) (.getInstrument o))]
+                           (if (and iid iname)
+                             [iid iname])))
+                       (into {}))
+        inst-map (build-instrument-map ikey-iname iid-iname)]
+    (reset! instrument-map inst-map)))
+
+(defn get-trading-settings [session account-id ikey-iname]
+  (let [bs ^O2GSession (base session)
+        lr ^O2GLoginRules (.getLoginRules bs)
+        rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+        res ^O2GResponse (.getTableRefreshResponse lr O2GTableType/ACCOUNTS)
+        rdr ^O2GAccountsTableResponseReader (.createAccountsTableReader rdr-fct res)
+        a ^O2GAccountRow (->> (range (.size rdr))
+                              (some #(let [a ^O2GAccountRow (.getRow rdr %)]
+                                       (if (= (.getAccountID a) account-id) a))))
+        tsp ^O2GTradingSettingsProvider (.getTradingSettingsProvider lr)]
+    (->> ikey-iname
+         (map (fn [[ikey iname]]
+                (let [ms ^O2GMarketStatus (.getMarketStatus tsp iname)
+                      o? (= ms O2GMarketStatus/MARKET_STATUS_OPEN)]
+                  [ikey
+                   {:ikey ikey
+                    :iname iname
+                    :stop-tr (.getCondDistStopForTrade tsp iname)
+                    :limit-tr (.getCondDistLimitForTrade tsp iname)
+                    :stop (.getCondDistEntryStop tsp iname)
+                    :limit (.getCondDistEntryLimit tsp iname)
+                    :q-min (.getMinQuantity tsp iname a)
+                    :q-max (.getMaxQuantity tsp iname a)
+                    :size (.getBaseUnitSize tsp iname a)
+                    :mmr (.getMMR tsp iname a)
+                    :open? o?}])))
+         (into {}))))
 
 (defn get-recent-prices
   "Get historical bid prices {:t, :v, :o, :h, :l, :c}
-  *instrument*: like EUR/USD
+  *ikey*: instrument key like :eur-usd
   *timeframe*: m1: 1 minute, H1: 1 hour, D1: 1 day
   NOTE: Do NOT use for big data!"
-  [session instrument timeframe date-from date-to]
+  [session ikey timeframe date-from date-to]
   (assert (:connected? @session) "Session Disconnected")
-  (let [bs ^O2GSession (base session)
+  (let [iname (:iname (get @instrument-map ikey))
+        bs ^O2GSession (base session)
         req-fct ^O2GRequestFactory (.getRequestFactory bs)
         tfrm ^O2GTimeframe (-> req-fct .getTimeFrameCollection (.get timeframe))
         req ^O2GRequest (.createMarketDataSnapshotRequestInstrument
-                         req-fct instrument tfrm 300)
+                         req-fct iname tfrm 300)
         dto ^Calendar (->Calendar date-to)
         dfrom ^Calendar (->Calendar date-from)]
     (loop [dto dto
@@ -249,6 +416,23 @@
         ;; request failure
         (vec ps)))))
 
+(defn get-offers
+  "Get latest price offers"
+  [session]
+  (assert (:connected? @session) "Session Disconnected")
+  (let [bs ^O2GSession (base session)
+        req-fct ^O2GRequestFactory (.getRequestFactory bs)
+        req ^O2GRequest (.createRefreshTableRequest req-fct O2GTableType/OFFERS)
+        res ^O2GResponse (request session req)]
+    (if res
+      (let [rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+            rdr ^O2GOffersTableResponseReader (.createOffersTableReader
+                                               rdr-fct res)]
+        (->> (for [i (range (.size rdr))]
+               (parse-offer-row (.getRow rdr i)))
+             (remove nil?)
+             vec)))))
+
 (defn get-accounts
   [session]
   (assert (:connected? @session) "Session Disconnected")
@@ -262,10 +446,7 @@
                                                  rdr-fct res)]
         (vec
          (for [i (range (.size rdr))]
-           (let [a ^O2GAccountRow (.getRow rdr i)]
-             {:id (.getAccountID a)
-              :limit (.getAmountLimit a)
-              :balance (.getBalance a)})))))))
+           (parse-account-row (.getRow rdr i))))))))
 
 (defn get-orders
   "Get pending orders"
@@ -282,16 +463,7 @@
                                                rdr-fct res)]
         (vec
          (for [i (range (.size rdr))]
-           (let [o ^O2GOrderRow (.getRow rdr i)]
-             {:id (.getOrderID o)
-              :status (.getStatus o)
-              :action (.getBuySell o)
-              :quantity (.getOriginAmount o)
-              :peg-offset (.getPegOffset o)
-              :rate (.getRate o)
-              :stage (.getStage o) ;; order is placed to open (O) or close (C)
-              :trade-id (.getTradeID o)
-              :type (.getType o)})))))))
+           (parse-order-row (.getRow rdr i))))))))
 
 (defn get-trades
   "Get open positions"
@@ -308,14 +480,7 @@
                                                rdr-fct res)]
         (vec
          (for [i (range (.size rdr))]
-           (let [t ^O2GTradeRow (.getRow rdr i)]
-             {:id (.getTradeID t)
-              :quantity (.getAmount t)
-              :mode (.getBuySell t)
-              :fee (.getCommission t)
-              :open-order-id (.getOpenOrderID t)
-              :open-price (.getOpenRate t)
-              :open-time (some-> t .getOpenTime .getTime)})))))))
+           (parse-trade-row (.getRow rdr i))))))))
 
 (defn get-closed-trades
   "Get closed positions in current day"
@@ -332,18 +497,7 @@
                                                      rdr-fct res)]
         (vec
          (for [i (range (.size rdr))]
-           (let [t ^O2GClosedTradeRow (.getRow rdr i)]
-             {:id (.getTradeID t)
-              :quantity (.getAmount t)
-              :mode (.getBuySell t)
-              :fee (.getCommission t)
-              :profit (.getGrossPL t)
-              :open-order-id (.getOpenOrderID t)
-              :open-price (.getOpenRate t)
-              :open-time (some-> t .getOpenTime .getTime)
-              :close-order-id (.getCloseOrderID t)
-              :close-price (.getCloseRate t)
-              :close-time (some-> t .getCloseTime .getTime)})))))))
+           (parse-closed-trade-row (.getRow rdr i))))))))
 
 (defn get-content [^java.net.URL url]
   (let [conn (.openConnection url)
@@ -394,68 +548,118 @@
   - candle day closes at 22:00 UTC or 21:00 UTC depending on daylight saving
   - use 22:00 for from-date to include
   - use 20:00 for to-date to exclude"
-  [communicator instrument timeframe date-from date-to]
+  [communicator ikey timeframe date-from date-to]
   (assert (:ready? @communicator) "PriceHistoryCommunicator not ready!")
-  (assert (not (str/blank? instrument)) "Missing instrument")
+  (assert (not (get @instrument-map ikey)) "Invalid symbol")
   (assert (#{"m1" "H1" "D1"} timeframe) "Invalid timeframe")
   (assert date-from "Missing date-from")
   (assert date-to "Missing date-to")
-  (let [comm ^IPriceHistoryCommunicator (base communicator)
+  (let [iname (:iname (get @instrument-map ikey))
+        comm ^IPriceHistoryCommunicator (base communicator)
         tfrm ^O2GTimeframe (-> (.getTimeframeFactory comm)
                                (.create timeframe))
         dfrom ^Calendar (->Calendar date-from)
         dto ^Calendar (->Calendar date-to)]
     (let [req ^IPriceHistoryCommunicatorRequest
-          (.createRequest comm instrument tfrm dfrom dto -1)
+          (.createRequest comm iname tfrm dfrom dto -1)
           res ^IPriceHistoryCommunicatorResponse (request communicator req)]
       (if res
         (let [rdr ^O2GMarketDataSnapshotResponseReader
               (.createResponseReader comm res)]
           (collect-candles rdr))))))
 
+(defn- update-minute-price-history [prices offer size])
+
+(defn handle-row-update
+  "*a*: atom to keep all row data
+  *op*: operation = :insert, :update or :delete
+  *t*: type of row = :account, :offer, :order, :trade, :closed-trade
+  *d*: row data"
+  [a op t d]
+  (when (:inited? @a)
+    (case op
+      (:insert :update) (swap! a update-in [t (:id d)] merge d)
+      :delete (if (not= t :closed-trade)
+                (swap! a update t dissoc (:id d))))
+    (if (= t :offer)
+      (swap! a update [:price-history (:id d)]
+             update-minute-price-history d (:price-history-size @a)))))
 
 (comment
 
   (require 'bindi.config)
   (require 'clojure.edn)
   (bindi.config/init)
-  (def my-session (create-session))
-  (let [p (merge (:fxcm @bindi.config/config)
-                 (:demo (->> "workspace/fxcm.edn" slurp clojure.edn/read-string)))]
-    (login my-session p))
+
+  (def my-insts {:eur-usd "EUR/USD"
+                 :eur-gbp "EUR/GBP"
+                 :gbp-usd "GBP/USD"})
+
+  (def my-data (atom {;; maps of id to entity
+                      :account {}
+                      :offer {}
+                      :order {}
+                      :trade {}
+                      :closed-trade {}
+                      ;; recent historical prices
+                      :price-history-size 1000
+                      :price-history {}}))
+
+  (def my-config (:demo (->> "workspace/fxcm.edn" slurp clojure.edn/read-string)))
+
+  (def my-session (create-session (partial handle-row-update my-data)))
+
+  (let [p (merge (:fxcm @bindi.config/config) my-config)]
+    (login my-session p)
+    (update-instrument-map my-session my-insts))
+
+  (log/info "server time:" (-> my-session base .getServerTime .getTime pr-str))
+
+  (let [aid (:account-id my-config)
+        f #(->> % (map (fn [d] [(:id d) d])) (into {}))
+        acs (f (get-accounts my-session))
+        offs (f (get-offers my-session))
+        ords (f (get-orders my-session aid))
+        trs (f (get-trades my-session aid))
+        ctrs (f (get-closed-trades my-session aid))]
+    (swap! my-data update :account merge acs)
+    (swap! my-data update :offer merge offs)
+    (swap! my-data update :order merge ords)
+    (swap! my-data update :trade merge trs)
+    (swap! my-data update :closed-trade merge ctrs))
 
   (let [y 2020, m 0, d0 8, d1 9
-        inst "EUR/USD"
-        sym (.toLowerCase (clojure.string/replace inst "/" "-"))
-        out (format "workspace/misc/%s-%d-%d-%d_%d.edn" sym y m d0 d1)
+        ikey :eur-usd
+        out (format "workspace/misc/%s-%d-%d-%d_%d.edn" (name ikey) y m d0 d1)
         dfrom (.getTime (doto (Calendar/getInstance
                                (SimpleTimeZone. SimpleTimeZone/UTC_TIME "UTC"))
                           (.clear) (.set y m d0)))
         dto (.getTime (doto (Calendar/getInstance
                              (SimpleTimeZone. SimpleTimeZone/UTC_TIME "UTC"))
                         (.clear) (.set y m d1)))
-        ps (get-recent-prices my-session inst "m1" dfrom dto)]
+        ps (get-recent-prices my-session ikey "m1" dfrom dto)]
     (log/info "total count" (count ps) "from:" (first ps) "to:" (last ps))
     (spit out ps)
     (log/info "wrote to file:" out))
 
   (download-reports my-session "workspace/report")
 
+  (get-offers my-session)
+
   (get-accounts my-session)
 
-  (if-let [aid (:id (first (get-accounts my-session)))]
-    (get-orders my-session aid))
+  (get-trading-settings my-session (:account-id my-config) my-insts)
 
-  (if-let [aid (:id (first (get-accounts my-session)))]
-    (get-trades my-session aid))
+  (get-orders my-session (:account-id my-config))
 
-  (if-let [aid (:id (first (get-accounts my-session)))]
-    (get-closed-trades my-session aid))
+  (get-trades my-session (:account-id my-config))
+
+  (get-closed-trades my-session (:account-id my-config))
 
   (def my-communicator (create-price-history-communicator my-session))
 
   (def d
-    (get-hist-prices my-communicator "EUR/USD" "m1"
+    (get-hist-prices my-communicator :eur-usd "m1"
                      #inst "2019-01-01T00:00:00.000+00:00"
                      #inst "2020-01-01T00:00:00.000+00:00"))
 
