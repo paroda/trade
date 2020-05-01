@@ -24,12 +24,8 @@
 ;; instrument info example: {:iid "1", :iname "EUR/USD", :ikey :eur-usd}
 (defonce ^:private instrument-map (atom nil))
 
-(defn- make-hash-map [keys vals]
-  (->> (interleave keys vals)
-       (apply hash-map)))
-
 (defn- build-instrument-map [ikey-iname iid-iname]
-  (let [m (make-hash-map (vals ikey-iname) (keys ikey-iname))]
+  (let [m (zipmap (vals ikey-iname) (keys ikey-iname))]
     (->> iid-iname
          (mapcat (fn [[iid iname]]
                    (if-let [ikey (get m iname)]
@@ -576,13 +572,13 @@
   *t*: type of row = :account, :offer, :order, :trade, :closed-trade
   *d*: row data"
   [a op t d]
-  (when (:inited? @a)
+  (when (and (:inited? @a) @instrument-map)
     (case op
       (:insert :update) (swap! a update-in [t (:id d)] merge d)
       :delete (if (not= t :closed-trade)
                 (swap! a update t dissoc (:id d))))
     (if (= t :offer)
-      (swap! a update [:price-history (:id d)]
+      (swap! a update-in [:price-history (:id d)]
              update-minute-price-history d (:price-history-size @a)))))
 
 (comment
@@ -610,10 +606,14 @@
   (def my-session (create-session (partial handle-row-update my-data)))
 
   (let [p (merge (:fxcm @bindi.config/config) my-config)]
-    (login my-session p)
-    (update-instrument-map my-session my-insts))
+    (if (login my-session p)
+      (update-instrument-map my-session my-insts)
+      (log/info "failed to login")))
 
-  (log/info "server time:" (-> my-session base .getServerTime .getTime pr-str))
+  @instrument-map
+
+  (log/info "server time:" (-> my-session base .getServerTime .getTime pr-str)
+            "local time:" (pr-str (Date.)))
 
   (let [aid (:account-id my-config)
         f #(->> % (map (fn [d] [(:id d) d])) (into {}))
@@ -626,7 +626,10 @@
     (swap! my-data update :offer merge offs)
     (swap! my-data update :order merge ords)
     (swap! my-data update :trade merge trs)
-    (swap! my-data update :closed-trade merge ctrs))
+    (swap! my-data update :closed-trade merge ctrs)
+    (swap! my-data assoc :inited? true))
+
+  @my-data
 
   (let [y 2020, m 0, d0 8, d1 9
         ikey :eur-usd
