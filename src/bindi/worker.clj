@@ -25,7 +25,7 @@
             lots 10
             entry 1
             limit 10
-            stop 3
+            stop 5
             oid (fxb/create-order ikey buy-sell lots entry limit stop)]
         (swap! state assoc-in [:last-order-id ikey] oid)
         (log/debug "ordered" ikey buy-sell lots entry limit stop)))))
@@ -70,7 +70,10 @@
 
   @state
 
-  (fxb/get-trade-status :eur-usd)
+  (->> (fxb/get-trade-status :eur-usd)
+       :closed-trade
+       (sort-by #(.getTime (:open-time %)) >)
+       (map (juxt :open-time :profit)))
 
   (stop)
 

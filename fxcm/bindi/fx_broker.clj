@@ -74,6 +74,9 @@
     ;; ensure removal of open order on conversion to trade
     (if (and (= op :insert) (= t :trade))
       (swap! a update :order dissoc (:open-order-id d)))
+    ;; ensure removal of close order on conversion to closed-trade
+    (if (and (= op :insert) (= t :closed-trade))
+      (swap! a update :order dissoc (:close-order-id d)))
     ;; update price-history for new tick
     (if (and (= op :update) (= t :offer))
       (swap! a update-in [:price-history (:id d)]
@@ -184,6 +187,9 @@
 
   [(select-keys @session-data [:account :order :trade :closed-trade])
    (:current (meta (get-in @session-data [:price-history :eur-usd])))]
+
+  (:offer @session-data)
+  (:order (swap! session-data assoc :order {}))
 
   (get-trade-status :eur-usd)
 
