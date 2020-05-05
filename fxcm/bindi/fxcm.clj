@@ -7,6 +7,7 @@
             O2GRequestFactory O2GResponseReaderFactory
             O2GValueMap O2GRequestParamsEnum
             O2GAccountsTableResponseReader O2GLoginRules
+            O2GOrderResponseReader O2GCommandResponseReader
             O2GOrdersTableResponseReader O2GOffersTableResponseReader
             O2GClosedTradesTableResponseReader O2GTradesTableResponseReader
             O2GTablesUpdatesReader O2GMarketDataSnapshotResponseReader
@@ -582,6 +583,7 @@
 
 (defn create-order-ELS
   "Order an instrument with Limit and Stop traling entry.
+  Returns the order id on success, else nil
   *offer*, *tr-settings*: for the desired instrument
   *order-type*: LE or SE
   *op*: :buy or :sell
@@ -622,7 +624,11 @@
           (.setString O2GRequestParamsEnum/CUSTOM_ID "create-order-ELS"))
         req ^O2GRequest (.createOrderRequest req-fct value-map)]
     (if req
-      (request session req)
+      (if-let [res ^O2GResponse (request session req)]
+        (let [rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+              rdr ^O2GOrderResponseReader (.createOrderResponseReader rdr-fct res)]
+          (.getOrderID rdr))
+        (log/error "order creation failed!"))
       (log/error "can not create order request:" (.getLastError req-fct)))))
 
 (defn remove-order [session account-id order-id]
@@ -639,58 +645,6 @@
       (request session req)
       (log/error "can not create remove order request:" (.getLastError req-fct)))))
 
-(defn- update-minute-price-history
-  "returns updated prices list
-  - new completed 1-minute period would be added to front of list
-  - pending 1-minute period would be updated in the metadata
-   *prices*: 1 minute bid candles ({:t, :v, :o, :h, :l, :c}, ..)
-             ordered recent one first
-   *offer*: {:id, :t, :a, :b, :pip, :v}
-   *size*: max count of candles in prices"
-  [prices offer size]
-  (log/info "update-minute-price-history" offer)
-  (let [{cp :current, cm :minute} (meta prices)
-        {:keys [b v t]} offer
-        om (int (/ (.getTime t) 60000))]
-    (if (if cm
-          (< om cm)
-          (if-let [lt (:t (first prices))]
-            (<= om (/ (.getTime lt) 60000))))
-      prices ;; ignore old, return unchanged
-      (if (= om cm)
-        ;; same minute
-        (let [p (-> cp
-                    (assoc :v v, :c b)
-                    (update :h max b)
-                    (update :l min b))]
-          (with-meta prices {:current p, :minute cm}))
-        ;; new minute or the very first tick
-        (let [t (Date. (* om 60000))
-              p {:t t, :v v, :o b, :h b, :l b, :c b}
-              prices (if cp (take size (conj prices cp)) prices)]
-          (with-meta prices {:current p, :minute om}))))))
-
-(defn handle-row-update
-  "*a*: atom to keep all row data
-      {:account {}, :offer {}, :order {}, :trade {}, :closed-trade {}
-       :price-history-size 1000
-       :price-history {<inst-kw> (<bid-candle-1-minute>,..)}}
-       price-history is a list with recent one first!
-  *op*: operation = :insert, :update or :delete
-  *t*: type of row = :account, :offer, :order, :trade, :closed-trade
-  *d*: row data"
-  [a op t d]
-  (when (:inited? @a)
-    (case op
-      (:insert :update) (if (= t :account)
-                          (swap! a update :account merge d)
-                          (swap! a update-in [t (:id d)] merge d))
-      :delete (if (#{:order :trade} t)
-                (swap! a update t dissoc (:id d))))
-    (if (and (= op :update) (= t :offer))
-      (swap! a update-in [:price-history (:id d)]
-             update-minute-price-history d (:price-history-size @a)))))
-
 (comment
 
   (require 'bindi.config)
@@ -701,21 +655,9 @@
                  ;; :eur-gbp "EUR/GBP"
                  :gbp-usd "GBP/USD"})
 
-  (def my-data (atom {:account {}
-                      ;; maps of id to entity
-                      :order {}
-                      :trade {}
-                      :closed-trade {}
-                      ;; offers, trade-settings, price-history by ikey
-                      :offer {} ;; offer id is ikey
-                      :trade-settings {}
-                      :price-history {}
-                      ;; max count of historical prices
-                      :price-history-size 1000}))
-
   (def my-config (:demo (->> "workspace/fxcm.edn" slurp clojure.edn/read-string)))
 
-  (def my-session (create-session my-insts (partial handle-row-update my-data)))
+  (def my-session (create-session my-insts (constantly nil)))
 
   (let [p (merge (:fxcm @bindi.config/config) my-config)]
     (if (login my-session p)
@@ -731,48 +673,6 @@
         dfrom (.getTime (doto (Calendar/getInstance)
                           (.add Calendar/DAY_OF_MONTH -1)))]
     (get-recent-prices my-session :eur-usd "D1" dfrom dto))
-
-  (let [aid (:account-id my-config)
-        f #(->> % (map (fn [d] [(:id d) d])) (into {}))
-        acc (get (f (get-accounts my-session)) aid)
-        tr-settings (get-trading-settings my-session aid my-insts)
-        offs (f (get-offers my-session))
-        ords (f (get-orders my-session aid))
-        trs (f (get-trades my-session aid))
-        ctrs (f (get-closed-trades my-session aid))
-        dto (Date.)
-        dfrom (.getTime (doto (Calendar/getInstance)
-                          (.add Calendar/DAY_OF_MONTH -1)))
-        phsize (:price-history-size @my-data)
-        ph (->> (keys my-insts)
-                (filter #(get-in @my-session [:instruments %]))
-                (map #(vector % (->> (get-recent-prices my-session % "m1" dfrom dto)
-                                     reverse
-                                     (take phsize))))
-                (into {}))]
-    (swap! my-data assoc
-           :account acc
-           :trade-settings tr-settings
-           :offer offs
-           :order ords
-           :trade trs
-           :closed-trade ctrs
-           :price-history ph
-           :inited? true))
-
-  @my-data
-
-  (let [ik :eur-usd
-        aid (:account-id my-config)
-        o (get-in @my-data [:offer ik])
-        trs (get-in @my-data [:trade-settings ik])
-        otype "SE"
-        op :buy, n 20, e 5, l 30, s 10]
-    (create-order my-session aid o trs otype op n e l s))
-
-  (let [aid (:account-id my-config)
-        oid "117261569"]
-    (remove-order my-session aid oid))
 
   (let [y 2020, m 0, d0 8, d1 9
         ikey :eur-usd
