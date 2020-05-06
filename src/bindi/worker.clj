@@ -2,7 +2,8 @@
   (:require [clojure.core.async :as a]
             [taoensso.timbre :as log]
             [bindi.config :as cfg]
-            [bindi.fx-broker :as fxb]))
+            [bindi.fx-broker :as fxb])
+  (:import [java.util Date]))
 
 (defonce ^:private state (atom {:last-order-id {}
                                 :stop-chan nil}))
@@ -31,8 +32,15 @@
         (log/debug "ordered" ikey buy-sell lots entry limit stop)))))
 
 (defn- trade []
-  (doseq [ikey (fxb/get-instruments)]
-    (trade-instrument ikey)))
+  #_(doseq [ikey (fxb/get-instruments)]
+      (trade-instrument ikey))
+  (if (let [now (.getTime (Date.))]
+        (->> (vals (fxb/get-offers))
+             (every? #(< 60000 (- now (.getTime (:t %)))))))
+    ;; stale offers data, refresh
+    (fxb/refresh-offers)
+    ;; ok to trade
+    (trade-instrument :eur-usd)))
 
 (defn stop []
   (if-let [stop-chan (:stop-chan @state)]
@@ -41,8 +49,9 @@
 (defn start []
   (if-not (:stop-chan @state)
     (let [stop-chan (a/chan)
-          ms 60000]
-      (a/go-loop []
+          ms1m 60000
+          ms1h (* 60 ms1m)]
+      (a/go-loop [ms ms1m]
         (let [[_ ch] (a/alts! [stop-chan (a/timeout ms)]
                               :priority true)]
           (if (= ch stop-chan)
@@ -50,10 +59,14 @@
             (do
               (log/info "aborted worker!")
               (swap! state dissoc :stop-chan))
-            ;; trade
-            (do
-              (trade-instrument :eur-usd)
-              (recur)))))
+            ;; carry on
+            (if (fxb/market-open?)
+              ;; trade
+              (do
+                (if (fxb/session-inited?) (trade))
+                (recur ms1m))
+              ;; snooze 1 hour
+              (recur ms1h)))))
       (swap! state assoc :stop-chan stop-chan)
       (log/info "started worker.."))))
 
@@ -65,6 +78,8 @@
   (cfg/init)
   (fxb/init-session)
   (fxb/init-session-data)
+
+  (fxb/end-session)
 
   (start)
 
