@@ -179,6 +179,12 @@
         aid (:account-id config)]
     (fxcm/remove-order session aid order-id)))
 
+(defn close-trade [trade-id]
+  (assert (:session @state) "no session")
+  (assert (:inited? @session-data) "session-data not inited")
+  (if-let [trade (get-in @session-data [:trade trade-id])]
+    (fxcm/close-trade-at-market (:session @state) trade)))
+
 (defn get-instruments []
   (assert (:inited? @session-data) "session-data not inited")
   (keys (:instruments @state)))
@@ -188,10 +194,11 @@
   (:offer @session-data))
 
 (defn get-trade-status
-  "returns {:order, :trade, :closed-trade}"
+  "returns {:account, :offer, :order, :trade, :closed-trade, :prices}"
   [ikey]
   (assert (:inited? @session-data) "session-data not inited")
-  (let [{:keys [account offer order trade closed-trade]} @session-data]
+  (let [{:keys [account offer order trade closed-trade]} @session-data
+        ph (get-in @session-data [:price-history ikey])]
     (letfn [(filter-by-ikey [data]
               (->> (vals data)
                    (filter #(= ikey (:ikey %)))))]
@@ -199,7 +206,8 @@
        :offer (get offer ikey)
        :order (filter-by-ikey order)
        :trade (filter-by-ikey trade)
-       :closed-trade (filter-by-ikey closed-trade)})))
+       :closed-trade (filter-by-ikey closed-trade)
+       :prices (remove nil? (take 30 (conj ph (:current (meta ph)))))})))
 
 (defn market-open?
   "market is open from Sun 9pm to Fri 9pm GMT. check the current time."
@@ -241,6 +249,9 @@
 
   (remove-order "117339822")
 
+  (keys (:trade @session-data))
+  (close-trade "67310766")
+
   [(select-keys @session-data [:account :order :trade :closed-trade])
    (:current (meta (get-in @session-data [:price-history :eur-usd])))]
 
@@ -251,9 +262,12 @@
 
   (get-trade-status :eur-usd)
 
+  (:iname (:eur-usd (:instruments @(:session @state))))
 
   (let [{:keys [config session]} @state
         aid (:account-id config)]
     (fxcm/get-offers (:session @state)))
+
+  (spit "workspace/closed-trade.edn" (:closed-trade @session-data))
 
   )

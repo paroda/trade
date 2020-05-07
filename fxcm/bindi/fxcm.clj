@@ -6,6 +6,7 @@
             O2GRequest O2GResponse O2GResponseType IO2GResponseListener
             O2GRequestFactory O2GResponseReaderFactory
             O2GValueMap O2GRequestParamsEnum
+            O2GPermissionChecker O2GPermissionStatus
             O2GAccountsTableResponseReader O2GLoginRules
             O2GOrderResponseReader O2GCommandResponseReader
             O2GOrdersTableResponseReader O2GOffersTableResponseReader
@@ -644,6 +645,33 @@
     (if req
       (request session req)
       (log/error "can not create remove order request:" (.getLastError req-fct)))))
+
+(defn close-trade-at-market [session trade]
+  (let [bs (base session)
+        {:keys [ikey id aid mode quantity]} trade
+        {:keys [iname iid]} (get-in @session [:instruments ikey])
+        req-fct ^O2GRequestFactory (.getRequestFactory bs)
+        lr ^O2GLoginRules (.getLoginRules bs)
+        pchkr ^O2GPermissionChecker (.getPermissionChecker lr)
+        ce? (= O2GPermissionStatus/PERMISSION_ENABLED
+               (.canCreateMarketCloseOrder pchkr iname))
+        ;; _ (log/info "ce?:" ce?)
+        value-map ^O2GValueMap
+        (doto (.createValueMap req-fct)
+          (.setString O2GRequestParamsEnum/COMMAND Constants$Commands/CreateOrder)
+          (.setString O2GRequestParamsEnum/ORDER_TYPE (if ce? "CM" "OM"))
+          ;; (.setString O2GRequestParamsEnum/ORDER_TYPE "CM")
+          ;; (.setString O2GRequestParamsEnum/TRADE_ID id)
+          (.setString O2GRequestParamsEnum/ACCOUNT_ID aid)
+          (.setString O2GRequestParamsEnum/OFFER_ID iid)
+          (.setString O2GRequestParamsEnum/BUY_SELL (case mode :buy "S" "B"))
+          (.setInt O2GRequestParamsEnum/AMOUNT quantity)
+          (.setString O2GRequestParamsEnum/CUSTOM_ID "close-trade-at-market"))
+        _ (if ce? (.setString value-map O2GRequestParamsEnum/TRADE_ID id))
+        req ^O2GRequest (.createOrderRequest req-fct value-map)]
+    (if req
+      (request session req)
+      (log/error "can not create close trade request:" (.getLastError req-fct)))))
 
 (comment
 
