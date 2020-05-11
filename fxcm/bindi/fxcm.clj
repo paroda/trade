@@ -281,11 +281,11 @@
                 (do
                   (.subscribeResponse session listener)
                   (swap! state assoc :connected? true)
-                  (deliver (:status @promises) true)
+                  (some-> (:status @promises) (deliver true))
                   (swap! promises dissoc :status))
                 "DISCONNECTED"
                 (do
-                  (deliver (:status @promises) false)
+                  (some-> (:status @promises) (deliver false))
                   (doseq [p (vals (:request @promises))]
                     (deliver p false))
                   (reset! promises {}))

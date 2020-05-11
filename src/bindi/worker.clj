@@ -27,10 +27,10 @@
                :buy (/ (- (:b offer) p) (:pip offer))
                :sell (/ (- p (:a offer)) (:pip offer))))
         ;; wait time in minutes
-        order-wait 3
+        order-wait 2
         lots 10, entry 1
-        limit 7, limit-2h 5, limit-2l 3, limit-wait 15
-        stop 20, stop-2h 6, stop-2l 3, stop-wait 45]
+        limit 6, limit-2h 5, limit-2l 3, limit-wait 15
+        stop 10, stop-2h 6, stop-2l 3, stop-wait 45]
     (cond
       ;; new trade if no trade pending and no high fluctuations
       (not (or open-order open-trade (> hl-range stop)))
