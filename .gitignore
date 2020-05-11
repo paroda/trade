@@ -5,3 +5,8 @@
 /sdk
 /workspace
 /History
+nohup.out
+repl-demo.sh
+run-demo.sh
+repl-real.sh
+run-real.sh

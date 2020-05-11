@@ -146,8 +146,7 @@
     (send session-data assoc :offer offs)))
 
 (defn init-session []
-  (let [my-config (:demo (->> "workspace/fxcm.edn" slurp edn/read-string))
-        my-config (merge (:fxcm @cfg/config) my-config)
+  (let [my-config (:fxcm @cfg/config)
         my-session (fxcm/create-session (:instruments @state)
                                         (partial handle-row-update session-data))]
     (swap! state assoc :config my-config :session my-session)
@@ -268,6 +267,6 @@
         aid (:account-id config)]
     (fxcm/get-offers (:session @state)))
 
-  (spit "workspace/closed-trade.edn" (:closed-trade @session-data))
+  (spit (str (:workspace @cfg/config) "/closed-trade.edn") (:closed-trade @session-data))
 
   )
