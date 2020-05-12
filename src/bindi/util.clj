@@ -49,3 +49,25 @@ separator = by default comma(,)
                  open-time, close-time
                  open-price, close-price]))
          (csv/write-csv w))))
+
+(defn merge-candles [& cs]
+  (if (seq cs)
+    (let [cs (sort-by #(.getTime (:t %)) < cs)
+          [vs hs ls] (->> cs
+                          (map (juxt :v :h :l))
+                          (apply map list))
+          v (reduce + vs)
+          h (apply max hs)
+          l (apply min ls)]
+      {:t (:t (first cs))
+       :v v, :h h, :l l
+       :o (:o (first cs))
+       :c (:c (last cs))})))
+
+(comment
+
+  (merge-candles {:t  #inst "2020-05-11T17:48:00.350-00:00", :v 1, :o 10, :c 20, :h 30, :l 0}
+                 {:t  #inst "2020-05-11T17:49:00.350-00:00", :v 3, :o 11, :c 21, :h 31, :l 1})
+  ;; => {:t #inst "2020-05-11T17:48:00.350-00:00", :v 4, :h 31, :l 0, :o 10, :c 21}
+
+  )

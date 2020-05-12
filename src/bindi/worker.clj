@@ -118,6 +118,12 @@
       (swap! state assoc :stop-chan stop-chan)
       (log/info "started worker.."))))
 
+(defn -main []
+  (cfg/init)
+  (fxb/init-session)
+  (fxb/init-session-data)
+  (start))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
