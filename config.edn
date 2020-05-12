@@ -1,4 +1,6 @@
 {:workspace "workspace"
+ :log {:level :debug
+       :rotor-log-file "rotor.log"}
  :fxcm {:url "www.fxcorporate.com/Hosts.jsp"
         :login ""
         :password ""

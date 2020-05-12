@@ -18,7 +18,8 @@
         env (System/getenv "TRADE_ENV")
         wpath (str (:workspace c) "/" env)
         c2 (->> (str wpath "/config.edn") slurp edn/read-string)
-        c (-> c 
+        c (-> c
               (assoc :workspace wpath)
+              (update-in [:log :rotor-log-file] #(str wpath "/" (or % "rotor.log")))
               (merge-deep c2))]
     (reset! config c)))

@@ -2,6 +2,7 @@
   (:require [clojure.core.async :as a]
             [taoensso.timbre :as log]
             [bindi.config :as cfg]
+            [bindi.log :as log-cfg]
             [bindi.fx-broker :as fxb])
   (:import [java.util Date]))
 
@@ -120,6 +121,7 @@
 
 (defn -main []
   (cfg/init)
+  (log-cfg/init)
   (fxb/init-session)
   (fxb/init-session-data)
   (start))
@@ -130,6 +132,7 @@
 (comment
 
   (cfg/init)
+  (log-cfg/init)
   (fxb/init-session)
   (fxb/init-session-data)
 
