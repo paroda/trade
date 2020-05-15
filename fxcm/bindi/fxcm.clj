@@ -390,45 +390,52 @@
   *ikey*: instrument key like :eur-usd
   *timeframe*: m1: 1 minute, H1: 1 hour, D1: 1 day
   NOTE: Do NOT use for big data!"
-  [session ikey timeframe date-from date-to]
-  (assert (:connected? @session) "Session Disconnected")
-  (let [iname (get-in @session [:instruments ikey :iname])
-        bs ^O2GSession (base session)
-        req-fct ^O2GRequestFactory (.getRequestFactory bs)
-        tfrm ^O2GTimeframe (-> req-fct .getTimeFrameCollection (.get timeframe))
-        req ^O2GRequest (.createMarketDataSnapshotRequestInstrument
-                         req-fct iname tfrm 300)
-        dto ^Calendar (->Calendar date-to)
-        dfrom ^Calendar (->Calendar date-from)]
-    (loop [dto dto
-           ps []]
-      (.fillMarketDataSnapshotRequestTime req-fct req dfrom dto false
-                                          O2GCandleOpenPriceMode/PREVIOUS_CLOSE)
-      (if-let [res ^O2GResponse (request session req)]
-        ;; request complete
-        (let [rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
-              rdr ^O2GMarketDataSnapshotResponseReader
-              (.createMarketDataSnapshotReader rdr-fct res)]
-          (if (> (.size rdr) 0)
-            ;; has some rows
-            (let  [;; earliest date in retured response would be next To date
-                   dto (.getDate rdr 0)
-                   ps1 (collect-candles rdr)
-                   o? (= (:t (last ps1)) (:t (first ps)))
-                   ps1 (if o? (butlast ps1) ps1)
-                   ps (concat ps1 ps)]
-              (log/debug "got hist prices: done"
-                         ", count:" (count ps1)
-                         ", starting at:" (pr-str dto))
-              (if (and (seq ps1) (.after dto dfrom))
-                ;; partial result, repeat
-                (recur dto ps)
-                ;; done!
-                (vec ps)))
-            ;; no rows
-            (vec ps)))
-        ;; request failure
-        (vec ps)))))
+  ([session ikey timeframe date-from date-to]
+   (get-recent-prices session ikey timeframe date-from date-to nil))
+  ([session ikey timeframe date-from date-to max-count]
+   (assert (:connected? @session) "Session Disconnected")
+   (let [iname (get-in @session [:instruments ikey :iname])
+         bs ^O2GSession (base session)
+         req-fct ^O2GRequestFactory (.getRequestFactory bs)
+         tfrm ^O2GTimeframe (-> req-fct .getTimeFrameCollection (.get timeframe))
+         req ^O2GRequest (.createMarketDataSnapshotRequestInstrument
+                          req-fct iname tfrm (min 300 (or max-count 300)))
+         dto ^Calendar (->Calendar (or  date-to (Date.)))
+         d0 ^Calendar (->Calendar (Date. 0))
+         dfrom ^Calendar (if date-from (->Calendar date-from))]
+     (loop [dto dto
+            ps []]
+       (.fillMarketDataSnapshotRequestTime req-fct req (or dfrom d0) dto false
+                                           O2GCandleOpenPriceMode/PREVIOUS_CLOSE)
+       (if-let [res ^O2GResponse (request session req)]
+         ;; request complete
+         (let [rdr-fct ^O2GResponseReaderFactory (.getResponseReaderFactory bs)
+               rdr ^O2GMarketDataSnapshotResponseReader
+               (.createMarketDataSnapshotReader rdr-fct res)]
+           (if (> (.size rdr) 0)
+             ;; has some rows
+             (let  [;; earliest date in retured response would be next To date
+                    dto (.getDate rdr 0)
+                    ps1 (collect-candles rdr)
+                    o? (= (:t (last ps1)) (:t (first ps)))
+                    ps1 (if o? (butlast ps1) ps1)
+                    ps (cond->> (concat ps1 ps)
+                         max-count (take max-count))]
+               (log/debug "got hist prices: done"
+                          ", count:" (count ps1)
+                          ", starting at:" (pr-str dto))
+               (if (and (seq ps1)
+                        (or dfrom max-count)
+                        (if dfrom (.after dto dfrom) true)
+                        (if max-count (< (count ps) max-count) true))
+                 ;; partial result, repeat
+                 (recur dto ps)
+                 ;; done!
+                 (vec ps)))
+             ;; no rows
+             (vec ps)))
+         ;; request failure
+         (vec ps))))))
 
 (defn get-offers
   "Get latest price offers"

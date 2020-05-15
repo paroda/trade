@@ -21,5 +21,21 @@
         c (-> c
               (assoc :workspace wpath)
               (update-in [:log :rotor-log-file] #(str wpath "/" (or % "rotor.log")))
-              (merge-deep c2))]
+              (merge-deep c2))
+        insts (->> (:instruments c)
+                   (reduce-kv (fn [insts ikey iconfig]
+                                (assoc insts ikey
+                                       (update iconfig :nn-file
+                                               #(str wpath "/" (or % (format "nn/%s.edn"
+                                                                             (name ikey)))))))
+                              {}))
+        c (assoc c :instruments insts)]
     (reset! config c)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(comment
+
+  (init)
+
+  )

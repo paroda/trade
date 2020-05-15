@@ -19,8 +19,7 @@
           ;; max count of historical prices
           :price-history-size 1000}))
 
-(defonce ^:private state (atom {:instruments {:eur-usd "EUR/USD"
-                                              :gbp-usd "GBP/USD"}
+(defonce ^:private state (atom {:instruments nil
                                 :config nil
                                 :session nil}))
 
@@ -147,9 +146,14 @@
 
 (defn init-session []
   (let [my-config (:fxcm @cfg/config)
-        my-session (fxcm/create-session (:instruments @state)
-                                        (partial handle-row-update session-data))]
-    (swap! state assoc :config my-config :session my-session)
+        my-insts (->> (:instruments @cfg/config)
+                      (map (fn [[ikey {:keys [iname]}]] [ikey iname]))
+                      (into {}))
+        my-session (fxcm/create-session my-insts (partial handle-row-update session-data))]
+    (swap! state assoc
+           :config my-config
+           :instruments my-insts
+           :session my-session)
     (if (fxcm/login my-session my-config)
       (log/info "login success!")
       (log/error "failed to login!"))))
@@ -191,6 +195,20 @@
 (defn get-offers []
   (assert (:inited? @session-data) "session-data not inited")
   (:offer @session-data))
+
+(defn get-closed-trades [ikey]
+  (assert (:inited? @session-data) "session-data not inited")
+  (->> @session-data :closed-trade vals
+       (filter #(= ikey (:ikey %)))))
+
+(defn get-prices [ikey]
+  (assert (:inited? @session-data) "session-data not inited")
+  (get-in @session-data [:price-history ikey]))
+
+(defn get-custom-prices [ikey time-frames date-to]
+  (->> time-frames
+       (mapcat (fn [[p n]]
+                 (fxcm/get-recent-prices (:session @state) :eur-usd p nil date-to n)))))
 
 (defn get-trade-status
   "returns {:account, :offer, :order, :trade, :closed-trade, :prices}"
@@ -268,5 +286,15 @@
     (fxcm/get-offers (:session @state)))
 
   (spit (str (:workspace @cfg/config) "/closed-trade.edn") (:closed-trade @session-data))
+
+  (count (fxcm/get-recent-prices (:session @state) :eur-usd "H1"
+                                 #inst "2020-05-13T00:26:30.936-00:00"
+                                 #inst "2020-05-13T10:26:30.936-00:00"
+                                 3))
+
+  (get-custom-prices :eur-usd [["m1" 5] ["m5" 12] ["H1" 6] ["H6" 4] ["D1" 7]]
+                     #inst "2020-05-10T00:26:30.936-00:00")
+
+  (fxcm/get-recent-prices (:session @state) :eur-usd "H6" nil nil 2)
 
   )

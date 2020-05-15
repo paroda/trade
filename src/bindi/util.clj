@@ -2,7 +2,9 @@
   (:require [clojure.data.csv :as csv]
             [clojure.edn :as edn]
             [clojure.java.io :as io])
-  (:import java.text.SimpleDateFormat))
+  (:import java.text.SimpleDateFormat
+           org.apache.commons.io.input.BOMInputStream
+           java.io.PushbackReader))
 
 (defn round [v n]
   (let [m (Math/pow 10.0 ^:Double n)]
@@ -22,7 +24,7 @@
   "Read the csv file containing time, open/high/low/close prices.
 =options=
 start-at = start reading from line number (0 is first line)
-date-format = by default \"yyyyMMdd HHmmss\" 
+date-format = by default \"yyyyMMdd HHmmss\"
 separator = by default comma(,)
 "
   [path & options]
@@ -71,3 +73,52 @@ separator = by default comma(,)
   ;; => {:t #inst "2020-05-11T17:48:00.350-00:00", :v 4, :h 31, :l 0, :o 10, :c 21}
 
   )
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; file utility   ;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn bom-reader
+    "Create a BOM aware reader.
+
+  NOTE: ensure to close it after use, like
+
+  ```clojure
+  (with-open [reader (bom-reader my-file-path)]
+    (slurp reader))
+  ```"
+  [file-or-path]
+  (-> file-or-path
+      io/input-stream
+      BOMInputStream.
+      io/reader))
+
+(defn bom-slurp
+  "same as clojure.slurp but is BOM aware"
+  [file-or-path]
+  (with-open [reader (bom-reader file-or-path)]
+    (slurp reader)))
+
+(defn read-edn
+  "Read the first edn data from a file and is BOM aware."
+  [file-or-path]
+  (with-open [reader (bom-reader file-or-path)]
+    (edn/read (PushbackReader. reader))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; response util  ;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn text-resp [status text]
+  {:status status
+   :headers {"Content-Type" "text/html"}
+   :body text})
+
+(defn ok-msg-resp [message]
+  {:status 200
+   :body {:message message}})
+
+(defn err-msg-resp [status message]
+  {:status status
+   :body {:error message}})

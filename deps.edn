@@ -1,13 +1,23 @@
 {:paths ["resources" "src"]
  :deps {org.clojure/clojure {:mvn/version "1.10.1"}
-        org.clojure/data.csv {:mvn/version "0.1.4"}
-        org.clojure/core.async {:mvn/version "0.7.559"}
+        org.clojure/data.csv {:mvn/version "1.0.0"}
+        org.clojure/core.async {:mvn/version "1.2.603"}
 
         com.fzakaria/slf4j-timbre {:mvn/version "0.3.19"}
         org.slf4j/slf4j-api {:mvn/version "1.7.30"}
         com.taoensso/timbre {:mvn/version "4.10.0"}
 
-        com.hypirion/clj-xchart {:mvn/version "0.2.0"}}
+        ;; ensure intel-mkl library
+        ;; refer: https://neanderthal.uncomplicate.org/articles/getting_started.html#installation
+        uncomplicate/neanderthal {:mvn/version "0.31.0"}
+
+        hiccup {:mvn/version "1.0.5"}
+        compojure {:mvn/version "1.6.1"}
+        ring/ring-core {:mvn/version "1.8.1"}
+        ring/ring-defaults {:mvn/version "0.3.2"}
+        ring-middleware-format {:mvn/version "0.7.4"}
+        http-kit {:mvn/version "2.3.0"}}
+
  :aliases
  {:dev {:extra-paths ["dev"]}
 
