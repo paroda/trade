@@ -104,9 +104,49 @@
   (when (:inited? @a)
     (send a update-session-data op t d)))
 
+(defn- on-session-lost []
+  (when-let [session (:session @state)]
+    (fxcm/dispose session)
+    (fxcm/dispose (:price-history-communicator @state))
+    (swap! state dissoc :session :price-history-communicator)))
+
+(defn- create-session []
+  (let [my-config (:fxcm @cfg/config)
+        my-insts (->> (:instruments @cfg/config)
+                      (map (fn [[ikey {:keys [iname]}]] [ikey iname]))
+                      (into {}))
+        my-session (fxcm/create-session
+                    my-insts
+                    (partial handle-row-update session-data)
+                    on-session-lost)
+        my-ph-communicator (fxcm/create-price-history-communicator my-session)]
+    (swap! state assoc
+           :config my-config
+           :instruments my-insts
+           :session my-session
+           :price-history-communicator my-ph-communicator)
+    my-session))
+
+(defn connect-session []
+  (let [session (or (:session @state)
+                    (create-session))]
+    (if-not (:connected? @session)
+      (if (fxcm/login session (:config @state))
+        (log/info "login success!")
+        (log/error "failed to login!")))
+    (:connected? @session)))
+
+(defn end-session []
+  (when-let [session (:session @state)]
+    (fxcm/logout session)
+    (fxcm/dispose session)
+    (fxcm/dispose (:price-history-communicator @state))
+    (swap! state dissoc :session :price-history-communicator)))
+
 (defn init-session-data []
   (assert (:session @state) "no session")
-  (let [{:keys [config session instruments]} @state
+  (let [{:keys [config session instruments]
+         ph-comm :price-history-communicator} @state
         aid (:account-id config)
         f #(->> % (map (fn [d] [(:id d) d])) (into {}))
         acc (get (f (fxcm/get-accounts session)) aid)
@@ -115,15 +155,11 @@
         ords (f (fxcm/get-orders session aid))
         trs (f (fxcm/get-trades session aid))
         ctrs (f (fxcm/get-closed-trades session aid))
-        dto (Date.)
-        dfrom (.getTime (doto (Calendar/getInstance)
-                          (.add Calendar/DAY_OF_MONTH -1)))
         phsize (:price-history-size @session-data)
         ph (->> (keys instruments)
                 (filter #(get-in @session [:instruments %]))
-                (map #(vector % (->> (fxcm/get-recent-prices session % "m1" dfrom dto)
-                                     reverse
-                                     (take phsize))))
+                (map #(vector % (reverse (fxcm/get-hist-prices
+                                          ph-comm % "m1" nil nil phsize))))
                 (into {}))]
     (send session-data assoc
           :account acc
@@ -135,38 +171,24 @@
           :price-history ph
           :inited? true)))
 
+(defn session-connected? []
+  (:connected? @(:session @state)))
+
+(defn session-data-inited? []
+  (:inited? @session-data))
+
 (defn refresh-offers []
-  (assert (:session @state) "no session")
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-connected?) "session not connected?")
+  (assert (session-data-inited?) "session-data not inited")
   (log/debug "refreshing offers..")
   (let [{:keys [session]} @state
         f #(->> % (map (fn [d] [(:id d) d])) (into {}))
         offs (f (fxcm/get-offers session))]
     (send session-data assoc :offer offs)))
 
-(defn init-session []
-  (let [my-config (:fxcm @cfg/config)
-        my-insts (->> (:instruments @cfg/config)
-                      (map (fn [[ikey {:keys [iname]}]] [ikey iname]))
-                      (into {}))
-        my-session (fxcm/create-session my-insts (partial handle-row-update session-data))]
-    (swap! state assoc
-           :config my-config
-           :instruments my-insts
-           :session my-session)
-    (if (fxcm/login my-session my-config)
-      (log/info "login success!")
-      (log/error "failed to login!"))))
-
-(defn end-session []
-  (when-let [session (:session @state)]
-    (fxcm/logout session)
-    (fxcm/dispose session)
-    (swap! state dissoc :session)))
-
 (defn create-order [ikey buy-sell lots entry limit stop]
-  (assert (:session @state) "no session")
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-connected?) "session not connected?")
+  (assert (session-data-inited?) "session-data not inited")
   (let [{:keys [config session]} @state
         aid (:account-id config)
         offer (get-in @session-data [:offer ikey])
@@ -176,44 +198,59 @@
                            buy-sell lots entry limit stop)))
 
 (defn remove-order [order-id]
-  (assert (:session @state) "no session")
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-connected?) "session not connected?")
+  (assert (session-data-inited?) "session-data not inited")
   (let [{:keys [config session]} @state
         aid (:account-id config)]
     (fxcm/remove-order session aid order-id)))
 
 (defn close-trade [trade-id]
-  (assert (:session @state) "no session")
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-connected?) "session not connected?")
+  (assert (session-data-inited?) "session-data not inited")
   (if-let [trade (get-in @session-data [:trade trade-id])]
     (fxcm/close-trade-at-market (:session @state) trade)))
 
 (defn get-instruments []
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-data-inited?) "session-data not inited")
   (keys (:instruments @state)))
 
 (defn get-offers []
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-data-inited?) "session-data not inited")
   (:offer @session-data))
 
 (defn get-closed-trades [ikey]
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-data-inited?) "session-data not inited")
   (->> @session-data :closed-trade vals
        (filter #(= ikey (:ikey %)))))
 
-(defn get-prices [ikey]
-  (assert (:inited? @session-data) "session-data not inited")
+(defn get-prices
+  "quickly get recent m1 bid candles.
+  for current minute candle (incomplete) pick :current from metadata.
+  prices are arranged recent first to oldest last."
+  [ikey]
+  (assert (session-data-inited?) "session-data not inited")
   (get-in @session-data [:price-history ikey]))
 
-(defn get-custom-prices [ikey time-frames date-to]
-  (->> time-frames
-       (mapcat (fn [[p n]]
-                 (fxcm/get-recent-prices (:session @state) :eur-usd p nil date-to n)))))
+(defn get-recent-prices
+  "prices are ordered oldest first to recent last.
+  always get from server (no caching).
+  NOTE: use for small amount (< 300) of candles.
+  for larger dataset use (get-hist-prices)"
+  [ikey time-frame date-to max-count]
+  (fxcm/get-recent-prices (:session @state)
+                          ikey time-frame nil date-to max-count))
+
+(defn get-hist-prices
+  "prices are ordered oldest first to recent last.
+  can be called as many time for large dataset (uses local cache)."
+  [ikey time-frame date-to max-count]
+  (fxcm/get-hist-prices (:price-history-communicator @state)
+                        ikey time-frame nil date-to max-count))
 
 (defn get-trade-status
   "returns {:account, :offer, :order, :trade, :closed-trade, :prices}"
   [ikey]
-  (assert (:inited? @session-data) "session-data not inited")
+  (assert (session-data-inited?) "session-data not inited")
   (let [{:keys [account offer order trade closed-trade]} @session-data
         ph (get-in @session-data [:price-history ikey])]
     (letfn [(filter-by-ikey [data]
@@ -227,7 +264,8 @@
        :prices (remove nil? (take 30 (conj ph (:current (meta ph)))))})))
 
 (defn market-open?
-  "market is open from Sun 9pm to Fri 9pm GMT. check the current time."
+  "market is open from Sun 9pm/10pm to Fri 9pm/10pm GMT
+   depending on Daylight saving. check the current time."
   []
   (let [now (Calendar/getInstance (java.util.TimeZone/getTimeZone "GMT"))
         h (.get now Calendar/HOUR_OF_DAY)
@@ -237,30 +275,26 @@
     (or
      ;; Mon - Thu
      (< 1 d 6)
-     ;; after Sun 10pm, 1 hour margin
-     (and (= d 1) (> h 22))
+     ;; after Sun 11pm, 1 hour margin
+     (and (= d 1) (> h 23))
      ;; before Fri 8pm, 1 hour margin
      (and (= d 6) (< h 20)))))
-
-(defn session-inited? []
-  (and (:session @state)
-       (:inited? @session-data)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (comment
 
   (cfg/init)
-  (init-session)
+  (connect-session)
   (init-session-data)
+
+  (end-session)
 
   @state
   @session-data
 
   (let [ps (get-in @session-data [:price-history :eur-usd])]
     [(:current (meta ps)) (first ps)])
-
-  (end-session)
 
   (create-order :eur-usd :sell 20 1 30 10)
 
@@ -285,16 +319,11 @@
         aid (:account-id config)]
     (fxcm/get-offers (:session @state)))
 
-  (spit (str (:workspace @cfg/config) "/closed-trade.edn") (:closed-trade @session-data))
+  (spit (str (:workspace @cfg/config) "/closed-trade.edn")
+        (:closed-trade @session-data))
 
-  (count (fxcm/get-recent-prices (:session @state) :eur-usd "H1"
-                                 #inst "2020-05-13T00:26:30.936-00:00"
-                                 #inst "2020-05-13T10:26:30.936-00:00"
-                                 3))
+  (get-recent-prices :eur-usd "m5" #inst "2020-05-15T00:00:00.000-00:00" 5)
 
-  (get-custom-prices :eur-usd [["m1" 5] ["m5" 12] ["H1" 6] ["H6" 4] ["D1" 7]]
-                     #inst "2020-05-10T00:26:30.936-00:00")
-
-  (fxcm/get-recent-prices (:session @state) :eur-usd "H6" nil nil 2)
+  (get-hist-prices :eur-usd "m5" #inst "2020-05-15T00:00:00.000-00:00" 5)
 
   )

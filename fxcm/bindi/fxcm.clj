@@ -156,145 +156,155 @@
    *handle-update* (fn [action type data])
    -- action = :insert, :update or :delete
    -- type = :account, :offer, :order, :trade, :closed-trade"
-  [ikey-iname handle-update]
-  (let [session ^O2GSession (O2GTransport/createSession)
-        state (atom {:connected? false, :instruments {}})
-        promises (atom {:status nil, :request {}})
-        listener (letfn [(res-fn [^String req-id ^O2GResponse res]
-                           (when-let [p (get-in @promises [:request req-id])]
-                             (swap! promises update :request dissoc req-id)
-                             (deliver p res)))]
-                   (reify
-                     IO2GResponseListener
-                     (^void onRequestCompleted [this ^String req-id ^O2GResponse res]
-                      (res-fn req-id res))
-                     (^void onRequestFailed [this ^String req-id ^String err]
-                      (if (str/blank? err)
-                        (log/info "There is no more data for req:" req-id)
-                        (log/warn "Failed req:" req-id ", err:" err))
-                      (res-fn req-id nil))
-                     (^void onTablesUpdates [this ^O2GResponse res]
-                      (if (= (.getType res) O2GResponseType/TABLES_UPDATES)
-                        (let [rdr-fct ^O2GResponseReaderFactory
-                              (.getResponseReaderFactory session)
-                              rdr ^O2GTablesUpdatesReader
-                              (.createTablesUpdatesReader rdr-fct res)]
-                          (doseq [i (range (.size rdr))]
-                            (when-let [op (case (str (.getUpdateType rdr i))
-                                            "INSERT" :insert
-                                            "UPDATE" :update
-                                            "DELETE" :delete
-                                            ;; unlikely
-                                            nil)]
-                              (case (str (.getUpdateTable rdr i))
-                                "OFFERS"
-                                (some->> (.getOfferRow rdr i)
-                                         (parse-offer-row (:instruments @state))
-                                         (handle-update op :offer))
-                                "ACCOUNTS"
-                                (->> (.getAccountRow rdr i)
-                                     parse-account-row
-                                     (handle-update op :account))
-                                "ORDERS"
-                                (->> (.getOrderRow rdr i)
-                                     (parse-order-row (:instruments @state))
-                                     (handle-update op :order))
-                                "TRADES"
-                                (->> (.getTradeRow rdr i)
-                                     (parse-trade-row (:instruments @state))
-                                     (handle-update op :trade))
-                                "CLOSED_TRADES"
-                                (->> (.getClosedTradeRow rdr i)
-                                     (parse-closed-trade-row (:instruments @state))
-                                     (handle-update op :closed-trade))
-                                ;; ignore others
-                                nil))))))))
-        me (reify
-             ;; make stateful
-             clojure.lang.IDeref
-             (deref [this] @state)
-             ;;
-             ;; implement session protocol
-             ;;
-             session-protocol
-             (login [this login-params]
-               (if (:connected? @state)
-                 true ;; already logged in
-                 ;; try login if not busy
-                 (let [p (promise)]
-                   (if (= p (-> promises
-                                (swap! #(if (:status %) % (assoc % :status p)))
-                                :status))
-                     (let [{:keys [login password url connection]} login-params]
-                       (swap! state merge login-params)
-                       (.login session login password url connection))
-                     ;; already busy!
-                     (throw (Exception. "Already pending with previous operation!")))
-                   (if @p
-                     ;; login success - load instruments mappings
-                     (let [insts (load-instrument-map session ikey-iname)]
-                       (swap! state assoc :instruments insts)
-                       true)
-                     ;; login failed
-                     false))))
-             (logout [this]
-               (if-not (:connected? @state)
-                 ;; already logged out
-                 false
-                 ;; try logout if not busy
-                 (let [p (promise)]
-                   (if (= p (-> promises
-                                (swap! #(if (:status %) % (assoc % :status p)))
-                                :status))
-                     (do
-                       (swap! state assoc :connected? false)
-                       (.unsubscribeResponse session ^IO2GResponseListener listener)
-                       (.logout session))
-                     ;; already busy!
-                     (throw (Exception. "Already pending with previous operation!")))
-                   @p)))
-             (dispose [this]
-               (.unsubscribeSessionStatus session ^IO2GSessionStatus this)
-               (.dispose session))
-             (base [this] session)
-             (request [this req]
-               (if (:connected? @state)
-                 (let [p (promise)]
-                   (swap! promises assoc-in
-                          [:request (.getRequestId ^O2GRequest req)]
-                          p)
-                   (.sendRequest session ^O2GRequest req)
-                   @p)
-                 (throw (Exception. "Not connected!"))))
-             ;;
-             ;; implement status listener
-             ;;
-             IO2GSessionStatus
-             (^void onSessionStatusChanged [this ^O2GSessionStatusCode status]
-              (log/info "FXCM session status:" (str status))
-              (case (str status)
-                "TRADING_SESSION_REQUESTED"
-                (let [{:keys [session-id pin]
-                       :or {session-id "", pin ""}} @state]
-                  (.setTradingSession session session-id pin))
-                "CONNECTED"
-                (do
-                  (.subscribeResponse session listener)
-                  (swap! state assoc :connected? true)
-                  (some-> (:status @promises) (deliver true))
-                  (swap! promises dissoc :status))
-                "DISCONNECTED"
-                (do
-                  (some-> (:status @promises) (deliver false))
-                  (doseq [p (vals (:request @promises))]
-                    (deliver p false))
-                  (reset! promises {}))
-                ;; other status changes, ignore
-                nil))
-             (^void onLoginFailed [this ^String err]
-              (log/error "Login error:" err)))]
-    (.subscribeSessionStatus session me)
-    me))
+  ([ikey-iname handle-update]
+   (create-session ikey-iname handle-update #(log/warn "Lost FXCM session")))
+  ([ikey-iname handle-update on-session-lost]
+   (let [session ^O2GSession (O2GTransport/createSession)
+         state (atom {:connected? false, :instruments {}})
+         promises (atom {:status nil, :request {}})
+         listener (letfn [(res-fn [^String req-id ^O2GResponse res]
+                            (when-let [p (get-in @promises [:request req-id])]
+                              (swap! promises update :request dissoc req-id)
+                              (deliver p res)))]
+                    (reify
+                      IO2GResponseListener
+                      (^void onRequestCompleted [this ^String req-id ^O2GResponse res]
+                       (res-fn req-id res))
+                      (^void onRequestFailed [this ^String req-id ^String err]
+                       (if (str/blank? err)
+                         (log/info "There is no more data for req:" req-id)
+                         (log/warn "Failed req:" req-id ", err:" err))
+                       (res-fn req-id nil))
+                      (^void onTablesUpdates [this ^O2GResponse res]
+                       (if (= (.getType res) O2GResponseType/TABLES_UPDATES)
+                         (let [rdr-fct ^O2GResponseReaderFactory
+                               (.getResponseReaderFactory session)
+                               rdr ^O2GTablesUpdatesReader
+                               (.createTablesUpdatesReader rdr-fct res)]
+                           (doseq [i (range (.size rdr))]
+                             (when-let [op (case (str (.getUpdateType rdr i))
+                                             "INSERT" :insert
+                                             "UPDATE" :update
+                                             "DELETE" :delete
+                                             ;; unlikely
+                                             nil)]
+                               (case (str (.getUpdateTable rdr i))
+                                 "OFFERS"
+                                 (some->> (.getOfferRow rdr i)
+                                          (parse-offer-row (:instruments @state))
+                                          (handle-update op :offer))
+                                 "ACCOUNTS"
+                                 (->> (.getAccountRow rdr i)
+                                      parse-account-row
+                                      (handle-update op :account))
+                                 "ORDERS"
+                                 (->> (.getOrderRow rdr i)
+                                      (parse-order-row (:instruments @state))
+                                      (handle-update op :order))
+                                 "TRADES"
+                                 (->> (.getTradeRow rdr i)
+                                      (parse-trade-row (:instruments @state))
+                                      (handle-update op :trade))
+                                 "CLOSED_TRADES"
+                                 (->> (.getClosedTradeRow rdr i)
+                                      (parse-closed-trade-row (:instruments @state))
+                                      (handle-update op :closed-trade))
+                                 ;; ignore others
+                                 nil))))))))
+         me (reify
+              ;; make stateful
+              clojure.lang.IDeref
+              (deref [this] @state)
+              ;;
+              ;; implement session protocol
+              ;;
+              session-protocol
+              (login [this login-params]
+                (if (:connected? @state)
+                  true ;; already logged in
+                  ;; try login if not busy
+                  (let [p (promise)]
+                    (if (= p (-> promises
+                                 (swap! #(if (:status %) % (assoc % :status p)))
+                                 :status))
+                      (let [{:keys [login password url connection]} login-params]
+                        (swap! state merge login-params)
+                        (.login session login password url connection))
+                      ;; already busy!
+                      (throw (Exception. "Already pending with previous operation!")))
+                    (if (deref p 60000 nil)
+                      ;; login success - load instruments mappings
+                      (let [insts (load-instrument-map session ikey-iname)]
+                        (swap! state assoc :instruments insts)
+                        true)
+                      ;; login failed
+                      false))))
+              (logout [this]
+                (if-not (:connected? @state)
+                  ;; already logged out
+                  false
+                  ;; try logout if not busy
+                  (let [p (promise)]
+                    (if (= p (-> promises
+                                 (swap! #(if (:status %) % (assoc % :status p)))
+                                 :status))
+                      (do
+                        (swap! state assoc :connected? false)
+                        (.unsubscribeResponse session ^IO2GResponseListener listener)
+                        (.logout session))
+                      ;; already busy!
+                      (throw (Exception. "Already pending with previous operation!")))
+                    (deref p 60000 nil))))
+              (dispose [this]
+                (.unsubscribeSessionStatus session ^IO2GSessionStatus this)
+                (.dispose session))
+              (base [this] session)
+              (request [this req]
+                (if (:connected? @state)
+                  (let [p (promise)]
+                    (swap! promises assoc-in
+                           [:request (.getRequestId ^O2GRequest req)]
+                           p)
+                    (.sendRequest session ^O2GRequest req)
+                    (deref p 60000 nil))
+                  (throw (Exception. "Not connected!"))))
+              ;;
+              ;; implement status listener
+              ;;
+              IO2GSessionStatus
+              (^void onSessionStatusChanged [this ^O2GSessionStatusCode status]
+               (log/info "FXCM session status:" (str status))
+               (case (str status)
+                 "TRADING_SESSION_REQUESTED"
+                 (let [{:keys [session-id pin]
+                        :or {session-id "", pin ""}} @state]
+                   (.setTradingSession session session-id pin))
+                 "CONNECTED"
+                 (do
+                   (.subscribeResponse session listener)
+                   (swap! state assoc :connected? true)
+                   (some-> (:status @promises) (deliver true))
+                   (swap! promises dissoc :status))
+                 "DISCONNECTED"
+                 (do
+                   (some-> (:status @promises) (deliver false))
+                   (doseq [p (vals (:request @promises))]
+                     (deliver p false))
+                   (reset! promises {}))
+                 "SESSION_LOST"
+                 (do
+                   (swap! state assoc :connected? false)
+                   (.unsubscribeResponse session ^IO2GResponseListener listener)
+                   (doseq [p (vals (:request @promises))]
+                     (deliver p false))
+                   (reset! promises {})
+                   (on-session-lost))
+                 ;; other status changes, ignore
+                 nil))
+              (^void onLoginFailed [this ^String err]
+               (log/error "Login error:" err)))]
+     (.subscribeSessionStatus session me)
+     me)))
 
 (defn create-price-history-communicator [session]
   (let [communicator ^IPriceHistoryCommunicator
@@ -312,7 +322,7 @@
                       [this
                        ^IPriceHistoryCommunicatorRequest req
                        ^IPriceHistoryCommunicatorResponse res]
-                      (log/debug "req complete id" (hash req))
+                      (log/trace "req complete id" (hash req))
                       (res-fn req res))
                      (^void onRequestFailed
                       [this
@@ -340,12 +350,12 @@
                nil)
              (base [this] communicator)
              (request [this req]
-               (log/debug "req id" (hash req))
+               (log/trace "req id" (hash req))
                (if (:ready? @state)
                  (let [p (promise)]
                    (swap! promises assoc-in [:request (hash req)] p)
                    (.sendRequest communicator req)
-                   @p)
+                   (deref p 60000 nil))
                  (throw (Exception. "PriceHistoryCommunicator not ready!"))))
              IPriceHistoryCommunicatorStatusListener
              (^void onCommunicatorStatusChanged [this ^boolean ready?]
@@ -421,7 +431,7 @@
                     ps1 (if o? (butlast ps1) ps1)
                     ps (cond->> (concat ps1 ps)
                          max-count (take max-count))]
-               (log/debug "got hist prices: done"
+               (log/trace "got recent prices: done"
                           ", count:" (count ps1)
                           ", starting at:" (pr-str dto))
                (if (and (seq ps1)
@@ -565,24 +575,24 @@
     (.size ardr)))
 
 (defn get-hist-prices
-  "*timeframe*: m1: 1 minute, H1: 1 hour, D1: 1 day
+  "*timeframe*: m1: 1 minute, m5: 5 minute, H1: 1 hour, D1: 1 day
   - candle day closes at 22:00 UTC or 21:00 UTC depending on daylight saving
   - use 22:00 for from-date to include
   - use 20:00 for to-date to exclude"
-  [communicator ikey timeframe date-from date-to]
+  [communicator ikey timeframe date-from date-to max-count]
   (assert (:ready? @communicator) "PriceHistoryCommunicator not ready!")
-  (assert (not (get-in @communicator [:instruments ikey])) "Invalid symbol")
-  (assert (#{"m1" "H1" "D1"} timeframe) "Invalid timeframe")
-  (assert date-from "Missing date-from")
-  (assert date-to "Missing date-to")
-  (let [iname (get-in @communicator [:instruments ikey :iname])
+  (assert (get-in @communicator [:instruments ikey]) "Invalid instrument")
+  (assert (#{"m1" "m5" "H1" "D1"} timeframe) "Invalid timeframe")
+  (assert (or date-from max-count) "at least date-from or max-count required")
+  (let [max-count (or max-count -1)
+        iname (get-in @communicator [:instruments ikey :iname])
         comm ^IPriceHistoryCommunicator (base communicator)
         tfrm ^O2GTimeframe (-> (.getTimeframeFactory comm)
                                (.create timeframe))
-        dfrom ^Calendar (->Calendar date-from)
-        dto ^Calendar (->Calendar date-to)]
+        dfrom ^Calendar (if date-from (->Calendar date-from))
+        dto ^Calendar (if date-to (->Calendar date-to))]
     (let [req ^IPriceHistoryCommunicatorRequest
-          (.createRequest comm iname tfrm dfrom dto -1)
+          (.createRequest comm iname tfrm dfrom dto max-count)
           res ^IPriceHistoryCommunicatorResponse (request communicator req)]
       (if res
         (let [rdr ^O2GMarketDataSnapshotResponseReader
@@ -742,7 +752,8 @@
   (def d
     (get-hist-prices my-communicator :eur-usd "m1"
                      #inst "2019-01-01T00:00:00.000+00:00"
-                     #inst "2020-01-01T00:00:00.000+00:00"))
+                     #inst "2020-01-01T00:00:00.000+00:00"
+                     -1))
 
   (logout my-session)
 

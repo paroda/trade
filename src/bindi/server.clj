@@ -31,15 +31,18 @@
   {:status 200
    :body {:config (assoc-in @cfg/config [:fxcm :password] nil)}})
 
-(defn view-closed-trades [ikey])
-
 (cc/defroutes app-routes
   (cc/GET "/" [] "My FX trading tool!")
   (cc/GET "/info" [] info)
   (cc/context "/reflect" []
               (cc/ANY "/*" [] reflect-request))
 
-  (cc/GET "/closed-trades/:ikey" [ikey] (view/closed-trades (keyword ikey))))
+  (cc/GET "/closed-trades/:ikey" [ikey] (view/closed-trades (keyword ikey)))
+  (cc/GET "/chart-pi/:ikey/:tfrm" [ikey tfrm] (view/chart-price-indicators
+                                               (keyword ikey) tfrm))
+  (cc/GET "/active-pi/:ikey" [ikey] (view/active-chart-price-indicators
+                                     (keyword ikey)))
+  (cc/GET "/chart-1/:ikey" [ikey] (view/chart-1 (keyword ikey))))
 
 
 ;; site-defaults for reference

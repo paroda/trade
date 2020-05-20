@@ -1,0 +1,2 @@
+{:known-macros [[compojure.core/defroutes [routes]]
+                [compojure.core/GET [param]]]}

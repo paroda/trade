@@ -9,7 +9,9 @@
             [bindi.config :as cfg]
             [bindi.log :as log-cfg]
             [bindi.nn :as nn]
-            [bindi.fx-broker :as fxb])
+            [bindi.fx-broker :as fxb]
+            [bindi.analysis :as ana]
+            [bindi.indicator :as ind])
   (:import [java.util Date]))
 
 (defonce ^:private state (atom {:stop-chan nil
@@ -30,19 +32,17 @@
   ;;         x-train y-train epochs eta lambda mu]}
 
   (let [ikey :eur-usd
-        tframes [["m1" 30]]
+        tframes [["m5" 30]]
         yprofit {:buy [1 0], :sell [0 1]}
         yloss {:buy [0 1], :sell [1 0]}]
     (spit "workspace/demo/train.edn"
           (vec
            (for [{:keys [profit mode open-time]}
                  (->> (fxb/get-trade-status ikey) :closed-trade)]
-             [(->> (fxb/get-custom-prices ikey tframes open-time)
-                   (mapcat (fn [{:keys [o h l c]}]
-                             [o h l c]
-                             ;; [(- c o) (- h l) (/ (- c o) (- h l))]
-                             ;;[(- c o)]
-                             ))
+             [(->> tframes
+                   (mapcat (fn [[tf n]]
+                             (fxb/get-recent-prices ikey tf open-time n)))
+                   (mapcat (juxt :o :h :l :c))
                    vec)
               (get (if (pos? profit) yprofit yloss) mode)]))))
 
@@ -142,7 +142,7 @@
         (->> (assoc idata :nn (analyze-instrument-nn ikey nn-data))
              (order-instrument-nn ikey))))))
 
-(defn- trade-instrument2 [ikey]
+(defn- trade-instrument-01 [ikey]
   (let [{oid :id, t :at, last-mode :mode, cancelled? :cancelled?}
         (get-in @state [:last-order ikey])
         odt (if t (int (/ (- (.getTime (Date.)) (.getTime t)) 60000)))
@@ -212,7 +212,7 @@
         (log/info "aborting trade" ikey dp tdt)
         (fxb/close-trade (:id open-trade))))))
 
-(defn- trade-instrument [ikey]
+(defn- trade-instrument-02 [ikey]
   (let [{oid :id, t :at} (get-in @state [:last-order ikey])
         odt (if t (int (/ (- (.getTime (Date.)) (.getTime t)) 60000)))
         {:keys [offer order trade closed-trade prices]} (fxb/get-trade-status ikey)
@@ -253,7 +253,45 @@
           (log/warn "failed to cancel order, error:"
                     (.getName (type ex)) (.getMessage ex)))))))
 
+(defn- trade-instrument [ikey]
+  (let [{oid :id, t :at} (get-in @state [:last-order ikey])
+        odt (if t (int (/ (- (.getTime (Date.)) (.getTime t)) 60000)))
+        {:keys [atr adx pos-di neg-di]} (first (ana/get-indicators ikey))
+        {:keys [offer order trade]} (fxb/get-trade-status ikey)
+        open-order (some #(if (= oid (:id %)) %) order)
+        open-trade (some #(if (= oid (:open-order-id %)) %) trade)
+        ;; wait time in minutes
+        order-wait 5
+        lots 10, entry 1]
+    (cond
+      ;; new trade if no trade pending
+      (not (or open-order open-trade))
+      (let [limit (let [limit (int (/ atr (:pip offer)))]
+                    (if (< 10 limit 20) limit))
+            stop (* 2 limit)
+            buy-sell (if (> adx 25)
+                       (if (> pos-di neg-di) :buy :sell))
+            oid (if (and buy-sell limit)
+                  (fxb/create-order ikey buy-sell lots entry limit stop))]
+        (swap! state assoc-in [:last-order ikey]
+               {:at (Date.)
+                :id oid, :mode buy-sell, :lots lots
+                :entry entry, :limit limit, :stop stop})
+        (log/debug "ordered:" ikey buy-sell lots entry limit stop))
+      ;; cancel order if waited too long
+      (and open-order (< order-wait odt))
+      (try
+        (log/info "order pending too long. canceling:" oid)
+        (fxb/remove-order oid)
+        (swap! state assoc-in [:last-order ikey :cancelled?] true)
+        (catch Exception ex
+          (log/warn "failed to cancel order, error:"
+                    (.getName (type ex)) (.getMessage ex)))))))
+
 (defn- trade []
+  ;; ignore the latest one as incomplete
+  (let [quotes (take 1 (fxb/get-hist-prices :eur-usd "H1" nil 2))]
+    (ana/put-quotes :eur-usd quotes))
   (if (let [now (.getTime (Date.))]
         (->> (vals (fxb/get-offers))
              (every? #(< 60000 (- now (.getTime (:t %)))))))
@@ -275,7 +313,7 @@
     (let [stop-chan (a/chan)
           ms1m 60000
           ms1h (* 60 ms1m)
-          ms-p 5000]
+          ms-p 30000]
       (a/go-loop [ms ms-p]
         (let [[_ ch] (a/alts! [stop-chan (a/timeout ms)]
                               :priority true)]
@@ -288,22 +326,31 @@
             (if (fxb/market-open?)
               ;; trade
               (do
-                (if (fxb/session-inited?) (trade))
+                (if (fxb/session-connected?)
+                  (trade)
+                  (fxb/connect-session))
                 (recur ms-p))
               ;; snooze 1 hour
               (recur ms1h)))))
       (swap! state assoc :stop-chan stop-chan)
       (log/info "started worker.."))))
 
+(defn init-ind-hist []
+  ;; ignore the latest one as incomplete
+  (let [quotes (butlast (fxb/get-hist-prices :eur-usd "H1" nil 100))]
+    (ana/put-quotes :eur-usd quotes)))
+
 (defn init []
-  (fxb/init-session)
+  (fxb/connect-session)
   (fxb/init-session-data)
+  (ana/init)
+  (init-ind-hist)
   (start))
 
 (defn -main []
   (cfg/init)
   (log-cfg/init)
-  (fxb/init-session)
+  (fxb/connect-session)
   (fxb/init-session-data)
   (start))
 
@@ -311,11 +358,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (comment
-
-  (cfg/init)
-  (log-cfg/init)
-  (fxb/init-session)
-  (fxb/init-session-data)
 
   (fxb/end-session)
 
@@ -325,7 +367,8 @@
 
   (stop)
 
-  [[[(Date.)]]
+  [(:last-order @state)
+   [[(Date.)]]
    (->> (fxb/get-trade-status :eur-usd)
         :closed-trade
         (sort-by #(.getTime (:open-time %)) >)
@@ -353,5 +396,6 @@
 
   (stop)
 
+  (count (ana/get-indicators :eur-usd))
 
   )
