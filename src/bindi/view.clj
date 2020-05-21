@@ -40,7 +40,7 @@
       {:range [yi ye]
        :domain [xi xe]})))
 
-(defn- svg-grid [x-scale y-scale xs ys xfmt yfmt]
+(defn- g-grid [x-scale y-scale xs ys xfmt yfmt]
   (let [[xi xe] (:range (meta x-scale))
         [yi ye] (:range (meta y-scale))]
     (into
@@ -66,7 +66,7 @@
                       (yfmt y)]))))
               ys)))))
 
-(defn- svg-candle [x-scale y-scale p]
+(defn- path-candle [x-scale y-scale p]
   (let [x (x-scale (.getTime (:t p)))
         h (y-scale (:h p))
         l (y-scale (:l p))
@@ -77,13 +77,13 @@
                      "stroke:#33a;stroke-width:1;fill:none"
                      "stroke:#a33;stroke-width:1;fill:none")}]))
 
-(defn- svg-trade [x-scale y-scale ct]
+(defn- g-trade [x-scale y-scale ct]
   (let [ti (x-scale (.getTime (:open-time ct)))
         te (x-scale (.getTime (:close-time ct)))
         pi (y-scale (:open-price ct))
         pe (y-scale (:close-price ct))
         [l h] (:range (meta y-scale))
-        blue "fill:#00f;stroke:none;opacity:0.3"
+        blue "fill:#0f6;stroke:none;opacity:0.3"
         red "fill:#f00;stroke:none;opacity:0.3"
         mode-style (case (:mode ct) :buy blue red)
         profit-style (if (pos? (:profit ct)) blue red)]
@@ -105,8 +105,8 @@
      [:svg {:flex 1, :viewBox (str/join "0 0 1000 300")
             :style "background-color:#ccc"}]
      (concat
-      (map (partial svg-candle x-scale y-scale) prices)
-      (map (partial svg-trade x-scale y-scale)
+      (map (partial path-candle x-scale y-scale) prices)
+      (map (partial g-trade x-scale y-scale)
            (filter #(> (.getTime (:open-time %)) xi) closed-trades))))))
 
 (defn closed-trades [ikey]
@@ -119,27 +119,39 @@
       [:div {:style "padding:10px;display:flex-box;height:400px"}
        svg]])))
 
+(defn- path-d [tis ind-key x-scale y-scale]
+  (->> tis
+       (map (juxt :t ind-key))
+       (map-indexed
+        (fn [i [t v]]
+          (format (if (zero? i) "M%f,%f" "L%f,%f")
+                  (x-scale (.getTime t))
+                  (y-scale v))))
+       (str/join " ")))
+
+(defn- path-ema-12 [tis {:keys [x-scale y-scale]}]
+  (if-let [tis (seq (filter :ema-12 tis))]
+    [:path {:d (path-d tis :ema-12 x-scale y-scale)
+            :style "stroke:#693;stroke-width:0.5;fill:none"}]))
+
+(defn- path-ema-26 [tis {:keys [x-scale y-scale]}]
+  (if-let [tis (seq (filter :ema-26 tis))]
+    [:path {:d (path-d tis :ema-26 x-scale y-scale)
+            :style "stroke:#963;stroke-width:0.5;fill:none"}]))
+
 (defn- svg-rsi [tis {:keys [x-scale x-ticks y-ticks y-range]}]
-  (if (seq tis)
+  (if-let [tis (seq (filter :rsi tis))]
     (let [[yi ye] y-range
           y-scale (create-scale yi ye 100 0 5)]
       [:svg {:viewBox "0 0 1000 100"
              :style "background-color:#111"}
-       (svg-grid x-scale y-scale x-ticks y-ticks nil identity)
+       (g-grid x-scale y-scale x-ticks y-ticks nil identity)
        [:text {:x 40, :y 20, :style "fill:#aa9;font-size:10"} "RSI"]
-       [:path {:d (->> tis
-                       (map (juxt :t :rsi))
-                       (filter second)
-                       (map-indexed
-                        (fn [i [t v]]
-                          (format (if (zero? i) "M%f,%f" "L%f,%f")
-                                  (x-scale (.getTime t))
-                                  (y-scale v))))
-                       (str/join " "))
+       [:path {:d (path-d tis :rsi x-scale y-scale)
                :style "stroke:#aa9;stroke-width:0.5;fill:none"}]])))
 
 (defn- svg-atr [tis {:keys [x-scale x-ticks]}]
-  (if (seq tis)
+  (if-let [tis (seq (filter :atr tis))]
     (let [[[yi ye] y-ticks] (let [ys (->> tis
                                           (map :atr)
                                           (remove nil?))
@@ -150,22 +162,14 @@
           y-scale (create-scale yi ye 100 0 5)]
       [:svg {:viewBox "0 0 1000 100"
              :style "background-color:#111"}
-       (svg-grid x-scale y-scale x-ticks y-ticks
-                 nil  #(format "%6.4f" %))
+       (g-grid x-scale y-scale x-ticks y-ticks
+               nil  #(format "%6.4f" %))
        [:text {:x 40, :y 20, :style "fill:#aa9;font-size:10"} "ATR"]
-       [:path {:d (->> tis
-                       (map (juxt :t :atr))
-                       (filter second)
-                       (map-indexed
-                        (fn [i [t v]]
-                          (format (if (zero? i) "M%f,%f" "L%f,%f")
-                                  (x-scale (.getTime t))
-                                  (y-scale v))))
-                       (str/join " "))
+       [:path {:d (path-d tis :atr x-scale y-scale)
                :style "stroke:#aa9;stroke-width:0.5;fill:none"}]])))
 
 (defn- svg-adx [tis {:keys [x-scale x-ticks]}]
-  (if (seq tis)
+  (if-let [tis (seq (filter :adx tis))]
     (let [[[yi ye] y-ticks] (let [ys (->> tis
                                           (mapcat (juxt :adx :pos-di :neg-di))
                                           (remove nil?))
@@ -178,23 +182,56 @@
             [:pos-di "stroke:#191;stroke-width:0.5;fill:none"]
             [:neg-di "stroke:#911;stroke-width:0.5;fill:none"]]
            (map (fn [[k style]]
-                  [:path {:d (->> tis
-                                  (map (juxt :t k))
-                                  (filter second)
-                                  (map-indexed
-                                   (fn [i [t v]]
-                                     (format (if (zero? i) "M%f,%f" "L%f,%f")
-                                             (x-scale (.getTime t))
-                                             (y-scale v))))
-                                  (str/join " "))
+                  [:path {:d (path-d tis k x-scale y-scale)
                           :style style}]))
            (into
             [:svg {:viewBox "0 0 1000 100"
                    :style "background-color:#111"}
-             (svg-grid x-scale y-scale x-ticks y-ticks nil identity)
+             (g-grid x-scale y-scale x-ticks y-ticks nil identity)
              [:text {:x 40, :y 20, :style "fill:#aa9;font-size:10"} "ADX"]])))))
 
-(defn- price-indicators [prices dt tis]
+(defn- svg-macd [tis {:keys [x-scale x-ticks]}]
+  (if-let [tis (seq (filter :macd-signal tis))]
+    (let [tis (map (fn [ti]
+                     (assoc ti :macd-diff (- (:macd ti) (:macd-signal ti))))
+                   tis)
+          [[yi ye] y-ticks] (let [ys (->> tis
+                                          (mapcat (juxt :macd :macd-signal
+                                                        :macd-diff))
+                                          (remove nil?))
+                                  yi (min 0 (apply min ys))
+                                  ye (max 0 (apply max ys))
+                                  y-ticks (ticks yi ye)]
+                              [[yi ye] y-ticks])
+          y-scale (create-scale yi ye 100 0 10)]
+      (->> [[:macd "stroke:#339;stroke-width:1;fill:none"]
+            [:macd-signal "stroke:#933;stroke-width:0.5;fill:none"]
+            [:macd-diff "stroke:#966;stroke-width:0.5;fill:none"]]
+           (map (fn [[k style]]
+                  [:path {:d (path-d tis k x-scale y-scale)
+                          :style style}]))
+           (into
+            [:svg {:viewBox "0 0 1000 100"
+                   :style "background-color:#111"}
+             (g-grid x-scale y-scale x-ticks y-ticks
+                     nil #(format "%6.4f" %))
+             [:text {:x 40, :y 20, :style "fill:#aa9;font-size:10"} "MACD"]])))))
+
+(defn- svg-cci [tis {:keys [x-scale x-ticks y-ticks y-range]}]
+  (if-let [tis (seq (filter :cci-20 tis))]
+    (let [[yi ye] y-range
+          y-scale (create-scale yi ye 100 0 5)]
+      [:svg {:viewBox "0 0 1000 100"
+             :style "background-color:#111"}
+       (g-grid x-scale y-scale x-ticks y-ticks nil identity)
+       [:text {:x 40, :y 20, :style "fill:#aa9;font-size:10"} "CCI"]
+       [:path {:d (path-d tis :cci-20 x-scale y-scale)
+               :style "stroke:#aa9;stroke-width:0.5;fill:none"}]
+       (if-let [tis (seq (filter :cci-200 tis))]
+         [:path {:d (path-d tis :cci-200 x-scale y-scale)
+                 :style "stroke:#a33;stroke-width:0.5;fill:none"}])])))
+
+(defn- price-indicators [prices dt indicators closed-trades]
   (let [h (apply max (map :h prices))
         l (apply min (map :l prices))
         y-scale (create-scale l h 200 0 5)
@@ -207,21 +244,34 @@
      ;; price history chart
      [:svg {:viewBox "0 0 1000 200"
             :style "background-color:#111"}
-      (svg-grid x-scale y-scale x-ticks y-ticks
-                #(date-str (Date. (long %)))
-                #(format "%6.4f" %))
+      (g-grid x-scale y-scale x-ticks y-ticks
+              #(date-str (Date. (long %)))
+              #(format "%6.4f" %))
       ;; price candles
       (->> prices
-           (map (partial svg-candle x-scale y-scale))
+           (map (partial path-candle x-scale y-scale))
+           (into [:g]))
+      ;; ema-12
+      (path-ema-12 indicators {:x-scale x-scale, :y-scale y-scale})
+      (path-ema-26 indicators {:x-scale x-scale, :y-scale y-scale})
+      ;; ema-26
+      ;; closed trades
+      (->> closed-trades
+           (map (partial g-trade x-scale y-scale))
            (into [:g]))]
      ;; indicator charts
      [:div {:style "height:5px"}]
-     (svg-rsi tis {:x-scale x-scale, :x-ticks x-ticks
-                   :y-ticks [30 70], :y-range [0 100]})
+     (svg-rsi indicators {:x-scale x-scale, :x-ticks x-ticks
+                          :y-ticks [30 70], :y-range [0 100]})
      [:div {:style "height:5px"}]
-     (svg-atr tis {:x-scale x-scale, :x-ticks x-ticks})
+     (svg-adx indicators {:x-scale x-scale, :x-ticks x-ticks})
      [:div {:style "height:5px"}]
-     (svg-adx tis {:x-scale x-scale, :x-ticks x-ticks})]))
+     (svg-macd indicators {:x-scale x-scale, :x-ticks x-ticks})
+     [:div {:style "height:5px"}]
+     (svg-cci indicators {:x-scale x-scale, :x-ticks x-ticks
+                          :y-ticks [-200 -100 0 100 200], :y-range [-200 200]})
+     [:div {:style "height:5px"}]
+     (svg-atr indicators {:x-scale x-scale, :x-ticks x-ticks})]))
 
 (defn chart-price-indicators [ikey tfrm]
   (let [dt (case tfrm
@@ -230,9 +280,17 @@
              "H1" (* 24 3600e3)
              "D1" (* 10 24 3600e3)
              (throw (Exception. "Invalid timeframe. Must be one of m1,m5,H1,D1")))
-        ps (fxb/get-hist-prices ikey tfrm nil 100)
-        tis  (ind/indicators [:rsi :atr :adx :pos-di :neg-di] ps)
-        pis (price-indicators ps dt tis)]
+        ps (fxb/get-hist-prices ikey tfrm nil 300)
+        ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
+                  :ema-12 :ema-26 :macd :macd-signal]
+        tis  (ind/indicators ind-keys ps)
+        tis (reverse (take 100 (reverse tis)))
+        ps (reverse (take 100 (reverse ps)))
+        cts (->> (fxb/get-trade-status :eur-usd)
+                 :closed-trade
+                 (filter #(< (.getTime (:t (first ps)))
+                             (.getTime (:close-time %)))))
+        pis (price-indicators ps dt tis cts)]
     (h/html
      [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
       [:div
@@ -244,7 +302,7 @@
   (let [dt (* 24 3600e3)
         ps (fxb/get-hist-prices ikey "H1" nil 100)
         tis (ana/get-indicators ikey)
-        pis (price-indicators ps dt tis)]
+        pis (price-indicators ps dt tis ())]
     (h/html
      [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
       [:div

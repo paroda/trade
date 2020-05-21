@@ -25,7 +25,8 @@
   ([quotes] (sequence (dedupe-quote) quotes)))
 
 (defn- setup-instrument [state ikey max-count]
-  (let [ind-keys [:rsi :atr :adx :pos-di :neg-di]
+  (let [ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
+                  :ema-12 :ema-26 :macd :macd-signal]
         ch (a/chan 100 (comp (dedupe-quote)
                              (ind/indicators ind-keys))
                    #(log/error % "indicator transducer error"))

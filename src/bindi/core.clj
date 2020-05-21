@@ -11,3 +11,13 @@
   (wkr/init)
   (svr/init)
   (log/info "booted my fx trading tool!"))
+
+(defn exit []
+  (wkr/exit)
+  (System/exit 0))
+
+(comment
+
+  (exit)
+
+  )
