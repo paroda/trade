@@ -1,4 +1,4 @@
-(ns nn
+(ns nn-test
   (:require [clojure.core.async :as a]
             [clojure.string :as str]
             [clojure.data.csv :as csv]

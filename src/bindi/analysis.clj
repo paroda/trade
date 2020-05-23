@@ -24,11 +24,53 @@
               (xf result quote))))))))
   ([quotes] (sequence (dedupe-quote) quotes)))
 
+(defn with-history
+  ([n]
+   (assert (and (number? n) (> n 2)) "item count must be > 2")
+   (fn [xf]
+     (let [prev (volatile! nil)]
+       (fn
+         ([] (xf))
+         ([result] (xf result))
+         ([result item]
+          (let [next (take n (conj @prev item))]
+            (vreset! prev next)
+            (if (seq next)
+              (xf result next)
+              result)))))))
+  ([n items] (sequence (with-history n) items)))
+
+(defn analyze
+  ([strategy]
+   (fn [xf]
+     (let [state (volatile! nil)]
+       (fn
+         ([] (xf))
+         ([result] (xf result))
+         ([result ti]
+          (let [[ti s] (strategy @state ti)]
+            (vreset! state s)
+            (xf result ti)))))))
+  ([strategy tis] (sequence (analyze strategy) tis)))
+
+(defn strategy-adx-simple [state ti]
+  (let [{:keys [adx pos-di neg-di]} ti
+        {[adx-2 adx-1] :adx-history} (:adx-simple state)
+        trade {:mode (if (and adx-1 adx-2 (> adx 25))
+                       (cond
+                         (and (> adx adx-1 adx-2) (> pos-di neg-di)) :buy
+                         (and (< adx adx-1 adx-2) (< pos-di neg-di)) :sell))}]
+    [(assoc ti :trade trade)
+     (assoc state :adx-simple {:adx-history [adx-1 adx]})]))
+
 (defn- setup-instrument [state ikey max-count]
   (let [ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
-                  :ema-12 :ema-26 :macd :macd-signal]
+                  :ema-12 :ema-26 :macd :macd-signal
+                  :high-swing :low-swing]
+        strategy strategy-adx-simple
         ch (a/chan 100 (comp (dedupe-quote)
-                             (ind/indicators ind-keys))
+                             (ind/indicators ind-keys)
+                             (analyze strategy))
                    #(log/error % "indicator transducer error"))
         tis (atom nil)]
     (some-> (get-in state [:data ikey :ch])
@@ -58,7 +100,6 @@
           (get-in [:data ikey :tis])
           (deref)))
 
-
 (comment
 
   @state
@@ -67,4 +108,4 @@
 
   (get-indicators :eur-usd)
 
-  )
+  (with-history 3 (range 10)))

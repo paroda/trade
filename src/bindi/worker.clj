@@ -285,8 +285,9 @@
                        (if (> pos-di neg-di) :buy :sell))
             oid (if (and buy-sell limit)
                   (fxb/create-order ikey buy-sell lots entry limit stop))]
-        (swap! state assoc-in [:last-order ikey] {:at (Date.), :id oid})
-        (log/debug "ordered:" ikey buy-sell lots entry limit stop)))))
+        (when oid
+          (swap! state assoc-in [:last-order ikey] {:at (Date.), :id oid})
+          (log/debug "ordered:" ikey buy-sell lots entry limit stop))))))
 
 (defn- trade []
   ;; ignore the latest one as incomplete
@@ -311,10 +312,9 @@
 (defn start []
   (if-not (:stop-chan @state)
     (let [stop-chan (a/chan)
-          ms1m 60000
-          ms1h (* 60 ms1m)
-          ms-p 30000]
-      (a/go-loop [ms ms-p]
+          ms-idle (* 60 60 1000)
+          ms-active (* 60 1000)]
+      (a/go-loop [ms ms-active]
         (let [[_ ch] (a/alts! [stop-chan (a/timeout ms)]
                               :priority true)]
           (if (= ch stop-chan)
@@ -323,15 +323,18 @@
               (log/info "aborted worker!")
               (swap! state dissoc :stop-chan))
             ;; carry on
-            (if (fxb/market-open?)
-              ;; trade
-              (do
-                (if (fxb/session-connected?)
+            (do
+              ;; ensure connection
+              (if-not (fxb/session-connected?)
+                (fxb/connect-session))
+              ;; trade when market open
+              (if (fxb/market-open?)
+                ;; trade
+                (do
                   (trade)
-                  (fxb/connect-session))
-                (recur ms-p))
-              ;; snooze 1 hour
-              (recur ms1h)))))
+                  (recur ms-active))
+                ;; snooze 1 hour
+                (recur ms-idle))))))
       (swap! state assoc :stop-chan stop-chan)
       (log/info "started worker.."))))
 

@@ -205,7 +205,7 @@
                               [[yi ye] y-ticks])
           y-scale (create-scale yi ye 100 0 10)]
       (->> [[:macd "stroke:#339;stroke-width:1;fill:none"]
-            [:macd-signal "stroke:#933;stroke-width:0.5;fill:none"]
+            [:macd-signal "stroke:#933;stroke-dasharray:2;stroke-width:0.5;fill:none"]
             [:macd-diff "stroke:#966;stroke-width:0.5;fill:none"]]
            (map (fn [[k style]]
                   [:path {:d (path-d tis k x-scale y-scale)
@@ -231,6 +231,29 @@
          [:path {:d (path-d tis :cci-200 x-scale y-scale)
                  :style "stroke:#a33;stroke-width:0.5;fill:none"}])])))
 
+(defn- path-high-swing [tis {:keys [x-scale y-scale]}]
+  (if-let [tis (seq (filter :high-swing tis))]
+    [:path {:d (path-d tis :high-swing x-scale y-scale)
+            :style "stroke:#aa3;stroke-dasharray:5;stroke-width:0.5;fill:none"}]))
+
+(defn- path-low-swing [tis {:keys [x-scale y-scale]}]
+  (if-let [tis (seq (filter :low-swing tis))]
+    [:path {:d (path-d tis :low-swing x-scale y-scale)
+            :style "stroke:#a3a;stroke-dasharray:5;stroke-width:0.5;fill:none"}]))
+
+(defn- g-trade-signal [tis {:keys [x-scale y-scale]}]
+  (if-let [tis (seq (filter (comp :mode :trade) tis))]
+    (->> tis
+         (map (fn [{:keys [t], {:keys [mode]} :trade}]
+                (if mode
+                  (let [x (x-scale (.getTime t))
+                        [y _] (:range (meta y-scale))]
+                    [:circle {:cx x, :cy (- y 20), :r 2
+                              :style (case mode
+                                       :buy "stroke:none;fill:#33a"
+                                       :sell "stroke:none;fill:#a33")}]))))
+         (into [:g]))))
+
 (defn- price-indicators [prices dt indicators closed-trades]
   (let [h (apply max (map :h prices))
         l (apply min (map :l prices))
@@ -251,10 +274,14 @@
       (->> prices
            (map (partial path-candle x-scale y-scale))
            (into [:g]))
-      ;; ema-12
+      ;; ema-12 & ema-26
       (path-ema-12 indicators {:x-scale x-scale, :y-scale y-scale})
       (path-ema-26 indicators {:x-scale x-scale, :y-scale y-scale})
-      ;; ema-26
+      ;; high-swing & low-swing
+      (path-high-swing indicators {:x-scale x-scale, :y-scale y-scale})
+      (path-low-swing indicators {:x-scale x-scale, :y-scale y-scale})
+      ;; trade signals
+      (g-trade-signal indicators {:x-scale x-scale, :y-scale y-scale})
       ;; closed trades
       (->> closed-trades
            (map (partial g-trade x-scale y-scale))
@@ -274,41 +301,50 @@
      (svg-atr indicators {:x-scale x-scale, :x-ticks x-ticks})]))
 
 (defn chart-price-indicators [ikey tfrm]
-  (let [dt (case tfrm
-             "m1" 900e3
-             "m5" (* 3600e3)
-             "H1" (* 24 3600e3)
-             "D1" (* 10 24 3600e3)
-             (throw (Exception. "Invalid timeframe. Must be one of m1,m5,H1,D1")))
-        ps (fxb/get-hist-prices ikey tfrm nil 300)
-        ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
-                  :ema-12 :ema-26 :macd :macd-signal]
-        tis  (ind/indicators ind-keys ps)
-        tis (reverse (take 100 (reverse tis)))
-        ps (reverse (take 100 (reverse ps)))
-        cts (->> (fxb/get-trade-status :eur-usd)
-                 :closed-trade
-                 (filter #(< (.getTime (:t (first ps)))
-                             (.getTime (:close-time %)))))
-        pis (price-indicators ps dt tis cts)]
-    (h/html
-     [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
-      [:div
-       [:h2 "Chart - Price Indicators"]
-       [:div {:style "padding:10px"}
-        pis]]])))
+  (if (not (fxb/session-connected?))
+    (h/html [:div "Session not connected!"])
+    (let [dt (case tfrm
+               "m1" 900e3
+               "m5" (* 3600e3)
+               "H1" (* 24 3600e3)
+               "D1" (* 10 24 3600e3)
+               (throw (Exception. "Invalid timeframe. Must be one of m1,m5,H1,D1")))
+          ps (fxb/get-hist-prices ikey tfrm
+                                  nil ;; #inst "2020-05-10T00:00:00.000-00:00"
+                                  300)
+          ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
+                    :ema-12 :ema-26 :macd :macd-signal
+                    :high-swing :low-swing]
+          tis (->> ps
+                   (ind/indicators ind-keys)
+                   (ana/analyze ana/strategy-adx-simple))
+          tis (reverse (take 100 (reverse tis)))
+          ps (reverse (take 100 (reverse ps)))
+          cts (->> (fxb/get-trade-status :eur-usd)
+                   :closed-trade
+                   (filter #(< (.getTime (:t (first ps)))
+                               (.getTime (:close-time %)))))
+          pis (price-indicators ps dt tis cts)]
+      (h/html
+       [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
+        [:div
+         [:h2 "Chart - Price Indicators"]
+         [:div {:style "padding:10px"}
+          pis]]]))))
 
 (defn active-chart-price-indicators [ikey]
-  (let [dt (* 24 3600e3)
-        ps (fxb/get-hist-prices ikey "H1" nil 100)
-        tis (ana/get-indicators ikey)
-        pis (price-indicators ps dt tis ())]
-    (h/html
-     [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
-      [:div
-       [:h2 "Active Chart - Price Indicators"]
-       [:div {:style "padding:10px"}
-        pis]]])))
+  (if (not (fxb/session-connected?))
+    (h/html [:div "Session not connected!"])
+    (let [dt (* 24 3600e3)
+          ps (fxb/get-hist-prices ikey "H1" nil 100)
+          tis (ana/get-indicators ikey)
+          pis (price-indicators ps dt tis ())]
+      (h/html
+       [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
+        [:div
+         [:h2 "Active Chart - Price Indicators"]
+         [:div {:style "padding:10px"}
+          pis]]]))))
 
 (defn chart-1 [ikey]
   (let [dto (Date.) ;; #inst "2020-05-15T20:00:00.000-00:00"

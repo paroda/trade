@@ -65,7 +65,7 @@
            ;; very first quote
            [() nil]
            ;; second quote onwards
-           (let [tr (max (- h l) (Math/abs (- h pc)) (Math/abs (- l pc)))
+           (let [tr (- (max h pc) (min l pc))
                  a (smooth-avg atr2 tr)]
              [a (if (number? a) {:t t, :i a})]))]
      [atr (assoc state :atr {:atr2 atr2, :c c})])))
@@ -189,6 +189,53 @@
                      {:t t, :i (/ (- pt ma) 0.015 md)}))]
      [cci-200 (assoc state :cci-200 {:pts pts})])))
 
+(defn- high-swing* [state quote]
+  (evaluate-once
+   [state :high-swing quote]
+   (let [[{atr :i} state] (atr* state quote)
+         {{:keys [top d p lh]} :high-swing} state
+         {:keys [t h]} quote
+         lh (or lh h)
+         delta (if p (- h p))
+         new-top (if (and atr d delta (< delta 0 d)
+                          (or (not top) (> p top)
+                              (> (- p lh) atr)))
+                   p)
+         [top lh] (if atr
+                    (cond
+                      (and (not top) new-top) [new-top h]
+                      (and (not new-top) top) [top (min lh h)]
+                      (and top new-top) (if (> new-top top)
+                                          [new-top h]
+                                          (if (> atr (- top new-top))
+                                            [top (min lh h)]
+                                            [new-top h]))))
+         swing (if top {:t t, :i top})]
+     [swing (assoc state :high-swing {:top top :d delta, :p h, :lh lh})])))
+
+(defn- low-swing* [state quote]
+  (evaluate-once
+   [state :low-swing quote]
+   (let [[{atr :i} state] (atr* state quote)
+         {{:keys [bot d p hl]} :low-swing} state
+         {:keys [t l]} quote
+         hl (or hl l)
+         delta (if p (- l p))
+         new-bot (if (and atr d delta (< d 0 delta)
+                          (or (not bot) (< p bot)
+                              (> (- hl p) atr)))
+                   p)
+         [bot hl] (cond
+                    (and (not bot) new-bot) [new-bot l]
+                    (and (not new-bot) bot) [bot (max hl l)]
+                    (and bot new-bot) (if (> bot new-bot)
+                                        [new-bot l]
+                                        (if (> atr (- new-bot bot))
+                                          [bot (max hl l)]
+                                          [new-bot l])))
+         swing (if bot {:t t, :i bot})]
+     [swing (assoc state :low-swing {:bot bot, :d delta, :p l, :hl hl})])))
+
 (defn- ->indicator [evaluator]
   (fn [xf]
     (let [state (volatile! {})]
@@ -202,21 +249,29 @@
              (xf result indicator)
              result)))))))
 
+;; make a combined evaluator for specified indicators
+;; indicator data is returned only when all specified indicators have value
+;; also includes the quote in result
+(defn make-evaluator [ind-keys]
+  (let [evaluators (->> ind-keys
+                        (map #(list % (ns-resolve 'bindi.indicator
+                                                  (symbol (str (name %) \*)))))
+                        (filter second))]
+    (fn [state {:keys [t] :as quote}]
+      (reduce (fn [[result state] [ind-key evaluator]]
+                (let [[{:keys [i]} state] (evaluator state quote)]
+                  [(if (and result i)
+                     (assoc result ind-key i))
+                   state]))
+              [{:t t, :quote quote}
+               state]
+              evaluators))))
+
+;; indicator data is returned only when all specified indicators have value
+;; also includes the quote in result
 (defn indicators
   ([ind-keys]
-   (let [evaluators (->> ind-keys
-                         (map #(list % (ns-resolve 'bindi.indicator
-                                                   (symbol (str (name %) \*)))))
-                         (filter second))
-         evaluator (fn [state {:keys [t] :as quote}]
-                     (reduce (fn [[result state] [ind-key evaluator]]
-                               (let [[{:keys [i]} state] (evaluator state quote)]
-                                 [(cond-> result
-                                    i (assoc :t t, ind-key i))
-                                  state]))
-                             [nil state]
-                             evaluators))]
-     (->indicator evaluator)))
+   (->indicator (make-evaluator ind-keys)))
   ([ind-keys quotes] (sequence (indicators ind-keys) quotes)))
 
 (defn rsi
@@ -263,6 +318,14 @@
   ([] (->indicator cci-200*))
   ([quotes] (sequence (cci-200) quotes)))
 
+(defn high-swing
+  ([] (->indicator high-swing*))
+  ([quotes] (sequence (high-swing) quotes)))
+
+(defn low-swing
+  ([] (->indicator low-swing*))
+  ([quotes] (sequence (low-swing) quotes)))
+
 (comment
 
   (let [quotes (map #(hash-map :t %, :o (rand), :h (rand), :l (rand), :c (rand))
@@ -276,9 +339,7 @@
     ;; (indicators [:pos-di :adx] quotes)
     ;; (adx quotes)
     ;; (indicators [:ema-12 :ema-26 :macd :macd-signal] quotes)
-    (cci-20 quotes)
+    (high-swing quotes)
     )
-
-  (exp-smooth-avg 14 13.0)
 
   )

@@ -172,7 +172,7 @@
           :inited? true)))
 
 (defn session-connected? []
-  (:connected? @(:session @state)))
+  (some->  @state :session deref :connected?))
 
 (defn session-data-inited? []
   (:inited? @session-data))
@@ -325,5 +325,8 @@
   (get-recent-prices :eur-usd "m5" #inst "2020-05-15T00:00:00.000-00:00" 5)
 
   (get-hist-prices :eur-usd "m5" #inst "2020-05-15T00:00:00.000-00:00" 5)
+
+  (.. (fxcm/base (:session @state))
+      getSessionStatus)
 
   )
