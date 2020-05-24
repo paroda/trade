@@ -243,9 +243,12 @@
 (defn get-hist-prices
   "prices are ordered oldest first to recent last.
   can be called as many time for large dataset (uses local cache)."
-  [ikey time-frame date-to max-count]
-  (fxcm/get-hist-prices (:price-history-communicator @state)
-                        ikey time-frame nil date-to max-count))
+  [ikey time-frame date-to max-count-or-date-from]
+  (let [[max-count date-from] (if (number? max-count-or-date-from)
+                                [max-count-or-date-from nil]
+                                [-1 max-count-or-date-from])]
+    (fxcm/get-hist-prices (:price-history-communicator @state)
+                          ikey time-frame date-from date-to max-count)))
 
 (defn get-trade-status
   "returns {:account, :offer, :order, :trade, :closed-trade, :prices}"

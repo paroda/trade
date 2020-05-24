@@ -37,11 +37,14 @@
   (cc/context "/reflect" []
               (cc/ANY "/*" [] reflect-request))
 
+  (cc/GET "/chart-pi/:ikey/:tfrm/:n" [ikey tfrm n]
+          (view/chart-price-indicators (keyword ikey) tfrm (Integer. n)))
+  (cc/GET "/active-pi/:ikey" [ikey]
+          (view/active-chart-price-indicators (keyword ikey)))
+  (cc/GET "/backtest/:ikey/:tfrm/:n" [ikey tfrm n]
+          (view/backtest-strategy (keyword ikey) tfrm (Integer. n)))
+
   (cc/GET "/closed-trades/:ikey" [ikey] (view/closed-trades (keyword ikey)))
-  (cc/GET "/chart-pi/:ikey/:tfrm" [ikey tfrm] (view/chart-price-indicators
-                                               (keyword ikey) tfrm))
-  (cc/GET "/active-pi/:ikey" [ikey] (view/active-chart-price-indicators
-                                     (keyword ikey)))
   (cc/GET "/chart-1/:ikey" [ikey] (view/chart-1 (keyword ikey))))
 
 

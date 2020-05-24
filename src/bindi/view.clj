@@ -5,7 +5,9 @@
             [bindi.util :as u]
             [bindi.fx-broker :as fxb]
             [bindi.indicator :as ind]
-            [bindi.analysis :as ana])
+            [bindi.analysis :as ana]
+            [bindi.backtest :as bt]
+            [bindi.worker :as wkr])
   (:import [java.util Date Calendar]
            java.text.SimpleDateFormat))
 
@@ -300,7 +302,7 @@
      [:div {:style "height:5px"}]
      (svg-atr indicators {:x-scale x-scale, :x-ticks x-ticks})]))
 
-(defn chart-price-indicators [ikey tfrm]
+(defn chart-price-indicators [ikey tfrm n]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
     (let [dt (case tfrm
@@ -311,40 +313,61 @@
                (throw (Exception. "Invalid timeframe. Must be one of m1,m5,H1,D1")))
           ps (fxb/get-hist-prices ikey tfrm
                                   nil ;; #inst "2020-05-10T00:00:00.000-00:00"
-                                  300)
-          ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
-                    :ema-12 :ema-26 :macd :macd-signal
-                    :high-swing :low-swing]
+                                  (+ n ana/lead-ti-count))
+          ind-keys ana/indicator-keys
           tis (->> ps
                    (ind/indicators ind-keys)
-                   (ana/analyze ana/strategy-adx-simple))
-          tis (reverse (take 100 (reverse tis)))
-          ps (reverse (take 100 (reverse ps)))
+                   (ana/analyze ana/strategy-adx-cci-02))
+          ps (map :quote tis)
           cts (->> (fxb/get-trade-status :eur-usd)
                    :closed-trade
                    (filter #(< (.getTime (:t (first ps)))
                                (.getTime (:close-time %)))))
-          pis (price-indicators ps dt tis cts)]
+          cview (price-indicators ps dt tis cts)]
       (h/html
        [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
         [:div
          [:h2 "Chart - Price Indicators"]
          [:div {:style "padding:10px"}
-          pis]]]))))
+          cview]]]))))
 
 (defn active-chart-price-indicators [ikey]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
     (let [dt (* 24 3600e3)
-          ps (fxb/get-hist-prices ikey "H1" nil 100)
+          ps (fxb/get-hist-prices ikey wkr/ana-time-frame nil wkr/ana-max-count)
           tis (ana/get-indicators ikey)
-          pis (price-indicators ps dt tis ())]
+          cview (price-indicators ps dt tis ())]
       (h/html
        [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
         [:div
          [:h2 "Active Chart - Price Indicators"]
          [:div {:style "padding:10px"}
-          pis]]]))))
+          cview]]]))))
+
+(defn backtest-strategy [ikey tfrm n]
+  (if (not (fxb/session-connected?))
+    (h/html [:div "Session not connected!"])
+    (let [dto #inst "2020-05-23T00:00:00.000-00:00"
+          strategy ana/strategy-adx-cci-02
+          ind-keys ana/indicator-keys
+          dt (case tfrm
+               "m5" (* 3600e3)
+               "m30" (* 24 3600e3)
+               "H1" (* 24 3600e3)
+               (throw (Exception. "Invalid timeframe. Must be one of m5,H1")))
+          [tis {cts :closed-trades, bal :balance, bmax :max-bal, bmin :min-bal}]
+          (bt/test-strategy strategy ind-keys ikey tfrm dto
+                            (+ n ana/lead-ti-count))
+          ps (map :quote tis)
+          bt-view (price-indicators ps dt tis cts)]
+      (h/html
+       [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
+        [:div
+         [:h2 (format "Chart - back-test - balance: %10.2f (%10.2f : %10.2f)"
+                      bal bmax bmin)]
+         [:div {:style "padding:10px"}
+          bt-view]]]))))
 
 (defn chart-1 [ikey]
   (let [dto (Date.) ;; #inst "2020-05-15T20:00:00.000-00:00"

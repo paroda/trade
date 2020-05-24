@@ -9,6 +9,12 @@
 ;;  :inited? false}
 (defonce ^:private state (atom {:inited? false}))
 
+(def lead-ti-count 200)
+
+(def indicator-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
+                     :ema-12 :ema-26 :macd :macd-signal
+                     :high-swing :low-swing])
+
 (defn- dedupe-quote
   ([]
    (fn [xf]
@@ -56,18 +62,48 @@
 (defn strategy-adx-simple [state ti]
   (let [{:keys [adx pos-di neg-di]} ti
         {[adx-2 adx-1] :adx-history} (:adx-simple state)
-        trade {:mode (if (and adx-1 adx-2 (> adx 25))
+        trade {:mode (if (and adx-1 adx-2 (> adx 25) (> adx adx-1 adx-2))
                        (cond
-                         (and (> adx adx-1 adx-2) (> pos-di neg-di)) :buy
-                         (and (< adx adx-1 adx-2) (< pos-di neg-di)) :sell))}]
+                         (> pos-di neg-di) :buy
+                         (< pos-di neg-di) :sell))}]
     [(assoc ti :trade trade)
      (assoc state :adx-simple {:adx-history [adx-1 adx]})]))
 
+(defn strategy-adx-cci-01 [state ti]
+  (let [{:keys [adx pos-di neg-di cci-20 quote]} ti
+        {[adx-2 adx-1 pos-di-1 neg-di-1 quote-1] :history} (:adx-cci-01 state)
+        trade {:mode (if (and adx-1 adx-2 (> adx 25) (> adx adx-1))
+                       (cond
+                         (and (< cci-20 100) (> pos-di neg-di)
+                              (> (:c quote) (:o quote))
+                              (> pos-di pos-di-1)) :buy
+                         (and (> cci-20 -100) (< pos-di neg-di)
+                              (< (:c quote) (:o quote))
+                              (> neg-di neg-di-1)) :sell))}]
+    [(assoc ti :trade trade)
+     (assoc state :adx-cci-01 {:history [adx-1 adx pos-di neg-di quote]})]))
+
+(defn strategy-adx-cci-02 [state ti]
+  (let [{:keys [adx pos-di neg-di cci-20 quote]} ti
+        {[adx-1 pos-di-1 neg-di-1] :history} (:adx-cci-02 state)
+        trade {:mode (if (and adx-1 (> adx 20))
+                       (cond
+                         (and (< cci-20 100)
+                              (> (- pos-di neg-di) 5)
+                              (> (:c quote) (:o quote))
+                              (> pos-di pos-di-1))
+                         :buy
+                         (and (> cci-20 -100)
+                              (> (- neg-di pos-di) 5)
+                              (< (:c quote) (:o quote))
+                              (> neg-di neg-di-1))
+                         :sell))}]
+    [(assoc ti :trade trade)
+     (assoc state :adx-cci-02 {:history [adx pos-di neg-di]})]))
+
 (defn- setup-instrument [state ikey max-count]
-  (let [ind-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
-                  :ema-12 :ema-26 :macd :macd-signal
-                  :high-swing :low-swing]
-        strategy strategy-adx-simple
+  (let [ind-keys indicator-keys
+        strategy strategy-adx-cci-02
         ch (a/chan 100 (comp (dedupe-quote)
                              (ind/indicators ind-keys)
                              (analyze strategy))
@@ -81,10 +117,9 @@
         (recur)))
     (assoc-in state [:data ikey] {:tis tis, :ch ch})))
 
-(defn init []
+(defn init [max-count]
   (when-not (:inited? @state)
-    (let [max-count 100
-          init-state (-> @state
+    (let [init-state (-> @state
                          (assoc :inited? true, :max-count max-count)
                          (setup-instrument :eur-usd max-count))]
       (reset! state init-state))))

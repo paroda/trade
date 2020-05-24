@@ -199,7 +199,7 @@
          delta (if p (- h p))
          new-top (if (and atr d delta (< delta 0 d)
                           (or (not top) (> p top)
-                              (> (- p lh) atr)))
+                              (> (- p lh) (* 0.5 atr))))
                    p)
          [top lh] (if atr
                     (cond
@@ -223,7 +223,7 @@
          delta (if p (- l p))
          new-bot (if (and atr d delta (< d 0 delta)
                           (or (not bot) (< p bot)
-                              (> (- hl p) atr)))
+                              (> (- hl p) (* 0.5 atr))))
                    p)
          [bot hl] (cond
                     (and (not bot) new-bot) [new-bot l]

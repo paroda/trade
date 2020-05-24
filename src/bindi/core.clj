@@ -1,11 +1,19 @@
 (ns bindi.core
-  (:require [taoensso.timbre :as log]
+  (:require [clojure.core.async :as a]
+            [taoensso.timbre :as log]
             [bindi.config :as cfg]
             [bindi.log :as log-cfg]
             [bindi.worker :as wkr]
             [bindi.server :as svr]))
 
+(defn- gc []
+  (a/go-loop []
+    (System/gc)
+    (a/<! (a/timeout 5000))
+    (recur)))
+
 (defn init []
+  (gc)
   (cfg/init)
   (log-cfg/init)
   (wkr/init)

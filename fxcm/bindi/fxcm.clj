@@ -582,7 +582,7 @@
   [communicator ikey timeframe date-from date-to max-count]
   (assert (:ready? @communicator) "PriceHistoryCommunicator not ready!")
   (assert (get-in @communicator [:instruments ikey]) "Invalid instrument")
-  (assert (#{"m1" "m5" "H1" "D1"} timeframe) "Invalid timeframe")
+  (assert (#{"m1" "m5" "m30" "H1" "D1"} timeframe) "Invalid timeframe")
   (assert (or date-from max-count) "at least date-from or max-count required")
   (let [max-count (or max-count -1)
         iname (get-in @communicator [:instruments ikey :iname])
