@@ -305,21 +305,22 @@
 (defn chart-price-indicators [ikey tfrm n]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [dt (case tfrm
+    (let [dto nil ;; #inst "2020-05-10T00:00:00.000-00:00"
+          strategy ana/strategy-adx-cci-02
+          ind-keys ana/indicator-keys
+          dt (case tfrm
                "m1" 900e3
                "m5" (* 3600e3)
+               "m30" (* 24 3600e3)
                "H1" (* 24 3600e3)
                "D1" (* 10 24 3600e3)
-               (throw (Exception. "Invalid timeframe. Must be one of m1,m5,H1,D1")))
-          ps (fxb/get-hist-prices ikey tfrm
-                                  nil ;; #inst "2020-05-10T00:00:00.000-00:00"
-                                  (+ n ana/lead-ti-count))
-          ind-keys ana/indicator-keys
+               (throw (Exception. "Invalid timeframe. Must be one of m1,m5,m30,H1,D1")))
+          ps (fxb/get-hist-prices ikey tfrm dto (+ n ana/lead-ti-count))
           tis (->> ps
                    (ind/indicators ind-keys)
-                   (ana/analyze ana/strategy-adx-cci-02))
+                   (ana/analyze strategy))
           ps (map :quote tis)
-          cts (->> (fxb/get-trade-status :eur-usd)
+          cts (->> (fxb/get-trade-status ikey)
                    :closed-trade
                    (filter #(< (.getTime (:t (first ps)))
                                (.getTime (:close-time %)))))
@@ -348,7 +349,7 @@
 (defn backtest-strategy [ikey tfrm n]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [dto #inst "2020-05-23T00:00:00.000-00:00"
+    (let [dto nil ;; #inst "2020-05-23T00:00:00.000-00:00"
           strategy ana/strategy-adx-cci-02
           ind-keys ana/indicator-keys
           dt (case tfrm
