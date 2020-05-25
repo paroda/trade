@@ -14,7 +14,7 @@
 
 (def ana-max-count 100)
 
-(def ana-time-frame "H1")
+(def ana-time-frame "m30")
 
 (defn- trade-instrument [ikey]
   (let [{:keys [atr high-swing low-swing]

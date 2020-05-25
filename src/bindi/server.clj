@@ -6,10 +6,13 @@
             [org.httpkit.server :as hk]
             [compojure.core :as cc]
             [compojure.route :as cr]
-            [ring.util.response :refer [redirect response file-response resource-response]]
+            [ring.util.response :refer [redirect response
+                                        file-response resource-response]]
             [bindi.util :as util]
             [bindi.config :as cfg]
-            [bindi.view :as view]))
+            [bindi.view :as view])
+  (:import java.util.Date
+           java.text.SimpleDateFormat))
 
 (defonce ^:private state (atom {}))
 
@@ -31,18 +34,34 @@
   {:status 200
    :body {:config (assoc-in @cfg/config [:fxcm :password] nil)}})
 
+(defn chart-price-indicators [req]
+  (let [{:keys [ikey tfrm n]} (:params req)
+        ikey (keyword ikey)
+        n (Integer. n)
+        {:strs [dto]} (:query-params req)
+        dto (if-not (str/blank? dto)
+              (.parse (SimpleDateFormat. "yyyy-MM-dd") dto))]
+    (view/chart-price-indicators ikey tfrm n dto)))
+
+(defn backtest-strategy [req]
+  (let [{:keys [ikey tfrm n]} (:params req)
+        ikey (keyword ikey)
+        n (Integer. n)
+        {:strs [dto]} (:query-params req)
+        dto (if-not (str/blank? dto)
+              (.parse (SimpleDateFormat. "yyyy-MM-dd") dto))]
+    (view/backtest-strategy ikey tfrm n dto)))
+
 (cc/defroutes app-routes
   (cc/GET "/" [] "My FX trading tool!")
   (cc/GET "/info" [] info)
   (cc/context "/reflect" []
               (cc/ANY "/*" [] reflect-request))
 
-  (cc/GET "/chart-pi/:ikey/:tfrm/:n" [ikey tfrm n]
-          (view/chart-price-indicators (keyword ikey) tfrm (Integer. n)))
-  (cc/GET "/active-pi/:ikey" [ikey]
-          (view/active-chart-price-indicators (keyword ikey)))
-  (cc/GET "/backtest/:ikey/:tfrm/:n" [ikey tfrm n]
-          (view/backtest-strategy (keyword ikey) tfrm (Integer. n)))
+  (cc/GET "/active-pi/:ikey" [ikey] (view/active-chart-price-indicators
+                                     (keyword ikey)))
+  (cc/GET "/chart-pi/:ikey/:tfrm/:n" [] chart-price-indicators)
+  (cc/GET "/backtest/:ikey/:tfrm/:n" [] backtest-strategy)
 
   (cc/GET "/closed-trades/:ikey" [ikey] (view/closed-trades (keyword ikey)))
   (cc/GET "/chart-1/:ikey" [ikey] (view/chart-1 (keyword ikey))))

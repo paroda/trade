@@ -13,6 +13,16 @@
 
 (def date-format (SimpleDateFormat. "yyMMdd.HHmm"))
 
+(defn- date-picker [dto]
+  [:div {:style "position:absolute;right;top:10px;right:10px"}
+   [:input {:type "date", :id "toDate"
+            :value (if dto (.format (SimpleDateFormat. "yyyy-MM-dd") dto))}]
+   [:button {:style "margin-left:10px"
+             :onClick (str "javascript: "
+                           "window.location = window.location.pathname+'?dto='+"
+                           "document.getElementById('toDate').value")}
+    "GO"]])
+
 (defn- date-str [^Date d]
   (.format date-format d))
 
@@ -302,11 +312,10 @@
      [:div {:style "height:5px"}]
      (svg-atr indicators {:x-scale x-scale, :x-ticks x-ticks})]))
 
-(defn chart-price-indicators [ikey tfrm n]
+(defn chart-price-indicators [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [dto nil ;; #inst "2020-05-10T00:00:00.000-00:00"
-          strategy ana/strategy-adx-cci-02
+    (let [strategy ana/strategy-adx-01
           ind-keys ana/indicator-keys
           dt (case tfrm
                "m1" 900e3
@@ -329,6 +338,7 @@
        [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
         [:div
          [:h2 "Chart - Price Indicators"]
+         (date-picker dto)
          [:div {:style "padding:10px"}
           cview]]]))))
 
@@ -346,16 +356,16 @@
          [:div {:style "padding:10px"}
           cview]]]))))
 
-(defn backtest-strategy [ikey tfrm n]
+(defn backtest-strategy [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [dto nil ;; #inst "2020-05-23T00:00:00.000-00:00"
-          strategy ana/strategy-adx-cci-02
+    (let [strategy ana/strategy-adx-01
           ind-keys ana/indicator-keys
           dt (case tfrm
                "m5" (* 3600e3)
                "m30" (* 24 3600e3)
                "H1" (* 24 3600e3)
+               "D1" (* 3 24 3600e3)
                (throw (Exception. "Invalid timeframe. Must be one of m5,H1")))
           [tis {cts :closed-trades, bal :balance, bmax :max-bal, bmin :min-bal}]
           (bt/test-strategy strategy ind-keys ikey tfrm dto
@@ -367,6 +377,7 @@
         [:div
          [:h2 (format "Chart - back-test - balance: %10.2f (%10.2f : %10.2f)"
                       bal bmax bmin)]
+         (date-picker dto)
          [:div {:style "padding:10px"}
           bt-view]]]))))
 
