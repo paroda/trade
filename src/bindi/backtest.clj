@@ -122,6 +122,7 @@
                            1000)]
     (dissoc (second res) :closed-trades))
 
+  ;; cci-01 5/26 1000 m30 => 3734
   ;; adx-01 5/26 1000 m30 => 496
 
   (-> nil

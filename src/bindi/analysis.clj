@@ -9,9 +9,9 @@
 ;;  :inited? false}
 (defonce ^:private state (atom {:inited? false}))
 
-(def lead-ti-count 200)
+(def lead-ti-count 30)
 
-(def indicator-keys [:rsi :atr :adx :pos-di :neg-di :cci-20 :cci-200
+(def indicator-keys [:rsi :atr :adx :pos-di :neg-di :cci-20
                      :ema-12 :ema-26 :macd :macd-signal
                      :high-swing :low-swing])
 
@@ -110,20 +110,15 @@
 (defn strategy-cci-01 [state ti]
   (let [{:keys [atr cci-20 quote]} ti
         {:keys [o h l c]} quote
-        {[zone-1] :history} (:cci-01 state) ;;zone :z-100- z0- z0+ z100+
-        zone (cond
-               (< cci-20 -100) :z-100-
-               (< cci-20 0) :z0-
-               (< cci-20 100) :z0+
-               :else :z100+)
-        trade {:mode (if zone-1
+        {[cci-20-1] :history} (:cci-01 state)
+        trade {:mode (if cci-20-1
                        (cond
-                         (= [zone-1 zone] [:z0- :z-100-])
+                         (and (> cci-20-1 -100 cci-20))
                          :buy
-                         (= [zone-1 zone] [:z0+ :z+100+])
+                         (and (< cci-20-1 100 cci-20))
                          :sell))}]
     [(assoc ti :trade trade)
-     (assoc state :cci-01 {:history [zone]})]))
+     (assoc state :cci-01 {:history [cci-20]})]))
 
 (defn strategy-adx-cci-01 [state ti]
   (let [{:keys [adx pos-di neg-di cci-20 quote]} ti

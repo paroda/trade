@@ -13,6 +13,8 @@
 
 (def date-format (SimpleDateFormat. "yyMMdd.HHmm"))
 
+(defn- date-str [^Date d] (.format date-format d))
+
 (defn- date-picker [dto]
   [:div {:style "position:absolute;right;top:10px;right:10px"}
    [:input {:type "date", :id "toDate"
@@ -23,8 +25,19 @@
                            "document.getElementById('toDate').value")}
     "GO"]])
 
-(defn- date-str [^Date d]
-  (.format date-format d))
+(defn- cross-hair []
+  [:div {:style "position:absolute;top:0;height:100%;width:100%"
+         :onmousemove "javascript:
+  var x = event.pageX - this.offsetLeft -20;
+  var y = event.pageY - this.offsetTop -70;
+  document.getElementById('chv').style.width= ''+x+'px';
+  document.getElementById('chh').style.height= ''+y+'px';"}
+   [:div {:style "position:absolute;top:0;left:0;
+height:100%;border-right:1px solid#aa55dd77;width:300px"
+          :id "chv"}]
+   [:div {:style "position:absolute;left:0;top:0;
+width:100%;border-bottom:1px solid#aa55dd77;height:300px"
+          :id "chh"}]])
 
 (defn- ticks
   ([x1 x2] (ticks x1 x2 nil))
@@ -238,10 +251,7 @@
        (g-grid x-scale y-scale x-ticks y-ticks nil identity)
        [:text {:x 40, :y 20, :style "fill:#aa9;font-size:10"} "CCI"]
        [:path {:d (path-d tis :cci-20 x-scale y-scale)
-               :style "stroke:#aa9;stroke-width:0.5;fill:none"}]
-       (if-let [tis (seq (filter :cci-200 tis))]
-         [:path {:d (path-d tis :cci-200 x-scale y-scale)
-                 :style "stroke:#a33;stroke-width:0.5;fill:none"}])])))
+               :style "stroke:#aa9;stroke-width:0.5;fill:none"}]])))
 
 (defn- path-high-swing [tis {:keys [x-scale y-scale]}]
   (if-let [tis (seq (filter :high-swing tis))]
@@ -340,7 +350,9 @@
          [:h2 "Chart - Price Indicators"]
          (date-picker dto)
          [:div {:style "padding:10px"}
-          cview]]]))))
+          [:div {:style "position:relative"}
+           cview
+           (cross-hair)]]]]))))
 
 (defn active-chart-price-indicators [ikey]
   (if (not (fxb/session-connected?))
@@ -354,7 +366,9 @@
         [:div
          [:h2 "Active Chart - Price Indicators"]
          [:div {:style "padding:10px"}
-          cview]]]))))
+          [:div {:style "position:relative"}
+           cview
+           (cross-hair)]]]]))))
 
 (defn backtest-strategy [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
@@ -379,7 +393,9 @@
                       bal bmax bmin)]
          (date-picker dto)
          [:div {:style "padding:10px"}
-          bt-view]]]))))
+          [:div {:style "position:relative"}
+           bt-view
+           (cross-hair)]]]]))))
 
 (defn chart-1 [ikey]
   (let [dto (Date.) ;; #inst "2020-05-15T20:00:00.000-00:00"
