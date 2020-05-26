@@ -20,16 +20,14 @@
                       :sell (- open-price (* 1 atr))
                       nil)
         stop-price (case mode
-                     :buy (- low-swing (* 3 pip))
-                     :sell (+ high-swing (* 3 pip))
-                     nil)
-        #_ (stop-price (if limit-price
-                         (- open-price (* 2 (- limit-price open-price)))))
-        #_ (limit-price (if stop-price
-                          (+ open-price (* 0.5 (- open-price stop-price)))))]
+                     :buy (- (min low-swing (- open-price atr)) (* 3 pip))
+                     :sell (+ (max high-swing (+ open-price atr)) (* 3 pip))
+                     nil)]
     (if (and mode limit-price stop-price
-             #_(> 5 (/ (- open-price stop-price)
-                       (- limit-price open-price))))
+             (< 3 (int (/ atr pip)))
+             (case mode
+               :buy (< stop-price open-price limit-price)
+               :sell (> stop-price open-price limit-price)))
       {:mode mode
        :quantity (* lot size)
        :open-time t
@@ -114,7 +112,7 @@
 
   (fxb/session-connected?)
 
-  (let [res (test-strategy ana/strategy-cci-01
+  (let [res (test-strategy ana/strategy-adx-01
                            ana/indicator-keys
                            :eur-usd
                            "m30"
@@ -122,7 +120,6 @@
                            1000)]
     (dissoc (second res) :closed-trades))
 
-  ;; cci-01 5/26 1000 m30 => 3734
   ;; adx-01 5/26 1000 m30 => 496
 
   (-> nil

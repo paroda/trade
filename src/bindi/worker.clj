@@ -43,11 +43,13 @@
       ;; new trade if no trade pending, and trade signal present
       (and mode (not open-order))
       (let [limit (int (/ atr (:pip offer)))
-            stop (+ 3 (int (/ (case mode
-                                :buy (- (:a offer) low-swing)
-                                :sell (- high-swing (:b offer)))
+            stop (+ 3 (int (/ (max atr
+                                   (case mode
+                                     :buy (- (:a offer) low-swing)
+                                     :sell (- high-swing (:b offer))))
                               (:pip offer))))
-            oid (fxb/create-order ikey mode lots entry limit stop)]
+            oid (if (and (> stop limit 3))
+                  (fxb/create-order ikey mode lots entry limit stop))]
         (when oid
           (swap! state assoc-in [:last-order ikey]
                  {:at (Date.), :id oid, :limit limit, :stop stop})

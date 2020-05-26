@@ -325,7 +325,7 @@ width:100%;border-bottom:1px solid#aa55dd77;height:300px"
 (defn chart-price-indicators [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [strategy ana/strategy-cci-01
+    (let [strategy ana/strategy-adx-01
           ind-keys ana/indicator-keys
           dt (case tfrm
                "m1" 900e3
@@ -373,7 +373,7 @@ width:100%;border-bottom:1px solid#aa55dd77;height:300px"
 (defn backtest-strategy [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [strategy ana/strategy-cci-01
+    (let [strategy ana/strategy-adx-01
           ind-keys ana/indicator-keys
           dt (case tfrm
                "m5" (* 3600e3)

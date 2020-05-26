@@ -154,7 +154,7 @@
 
 (defn- setup-instrument [state ikey max-count]
   (let [ind-keys indicator-keys
-        strategy strategy-cci-01
+        strategy strategy-adx-01
         ch (a/chan 100 (comp (dedupe-quote)
                              (ind/indicators ind-keys)
                              (analyze strategy))
