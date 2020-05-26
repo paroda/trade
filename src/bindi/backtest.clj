@@ -16,14 +16,20 @@
          :keys [atr high-swing low-swing]} ti
         open-price c
         limit-price (case mode
-                      :buy (+ open-price atr)
-                      :sell (- open-price atr)
+                      :buy (+ open-price (* 1 atr))
+                      :sell (- open-price (* 1 atr))
                       nil)
         stop-price (case mode
                      :buy (- low-swing (* 3 pip))
                      :sell (+ high-swing (* 3 pip))
-                     nil)]
-    (if (and mode limit-price stop-price)
+                     nil)
+        #_ (stop-price (if limit-price
+                         (- open-price (* 2 (- limit-price open-price)))))
+        #_ (limit-price (if stop-price
+                          (+ open-price (* 0.5 (- open-price stop-price)))))]
+    (if (and mode limit-price stop-price
+             #_(> 5 (/ (- open-price stop-price)
+                       (- limit-price open-price))))
       {:mode mode
        :quantity (* lot size)
        :open-time t
@@ -108,7 +114,7 @@
 
   (fxb/session-connected?)
 
-  (let [res (test-strategy ana/strategy-adx-01
+  (let [res (test-strategy ana/strategy-cci-01
                            ana/indicator-keys
                            :eur-usd
                            "m30"

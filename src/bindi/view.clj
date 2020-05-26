@@ -315,7 +315,7 @@
 (defn chart-price-indicators [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [strategy ana/strategy-adx-01
+    (let [strategy ana/strategy-cci-01
           ind-keys ana/indicator-keys
           dt (case tfrm
                "m1" 900e3
@@ -359,7 +359,7 @@
 (defn backtest-strategy [ikey tfrm n dto]
   (if (not (fxb/session-connected?))
     (h/html [:div "Session not connected!"])
-    (let [strategy ana/strategy-adx-01
+    (let [strategy ana/strategy-cci-01
           ind-keys ana/indicator-keys
           dt (case tfrm
                "m5" (* 3600e3)

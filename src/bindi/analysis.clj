@@ -85,6 +85,46 @@
     [(assoc ti :trade trade)
      (assoc state :adx-01 {:history [adx pos-di neg-di]})]))
 
+(defn strategy-adx-02 [state ti]
+  (let [{:keys [atr rsi high-swing low-swing adx pos-di neg-di quote]} ti
+        {:keys [o h l c]} quote
+        {[adx-1 pos-di-1 neg-di-1] :history} (:adx-02 state)
+        trade {:mode (if (and adx-1 (> adx 20)
+                              (> 3 (/ (- h l) atr)))
+                       (cond
+                         (and (> (- pos-di neg-di) 5)
+                              (< rsi 80)
+                              ;;(> 5 (/ (- c low-swing) atr))
+                              (> c o)
+                              (> pos-di pos-di-1))
+                         :buy
+                         (and (> (- neg-di pos-di) 5)
+                              (> rsi 20)
+                              ;;(> 5 (/ (- high-swing c) atr))
+                              (< c o)
+                              (> neg-di neg-di-1))
+                         :sell))}]
+    [(assoc ti :trade trade)
+     (assoc state :adx-02 {:history [adx pos-di neg-di]})]))
+
+(defn strategy-cci-01 [state ti]
+  (let [{:keys [atr cci-20 quote]} ti
+        {:keys [o h l c]} quote
+        {[zone-1] :history} (:cci-01 state) ;;zone :z-100- z0- z0+ z100+
+        zone (cond
+               (< cci-20 -100) :z-100-
+               (< cci-20 0) :z0-
+               (< cci-20 100) :z0+
+               :else :z100+)
+        trade {:mode (if zone-1
+                       (cond
+                         (= [zone-1 zone] [:z0- :z-100-])
+                         :buy
+                         (= [zone-1 zone] [:z0+ :z+100+])
+                         :sell))}]
+    [(assoc ti :trade trade)
+     (assoc state :cci-01 {:history [zone]})]))
+
 (defn strategy-adx-cci-01 [state ti]
   (let [{:keys [adx pos-di neg-di cci-20 quote]} ti
         {[adx-2 adx-1 pos-di-1 neg-di-1 quote-1] :history} (:adx-cci-01 state)
@@ -119,7 +159,7 @@
 
 (defn- setup-instrument [state ikey max-count]
   (let [ind-keys indicator-keys
-        strategy strategy-adx-01
+        strategy strategy-cci-01
         ch (a/chan 100 (comp (dedupe-quote)
                              (ind/indicators ind-keys)
                              (analyze strategy))
