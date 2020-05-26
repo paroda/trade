@@ -112,15 +112,17 @@
 
   (fxb/session-connected?)
 
-  (let [res (test-strategy ana/strategy-adx-01
+  (let [res (test-strategy ana/strategy-adx-02
                            ana/indicator-keys
                            :eur-usd
                            "m30"
-                           nil ;#inst "2020-05-25T00:00:00.000-00:00"
+                           #inst "2020-05-24T00:00:00.000-00:00"
                            1000)]
     (dissoc (second res) :closed-trades))
 
-  ;; adx-01 5/26 1000 m30 => 496
+  ;; cci-01 5/26 1000 m30 => 197
+  ;; adx-02 5/26 1000 m30 => 267
+  ;; adx-01 5/26 1000 m30 => 178
 
   (-> nil
       (as-> $ (simulate {:trade {:mode :buy}} $

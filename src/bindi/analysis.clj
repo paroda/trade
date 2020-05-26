@@ -86,53 +86,64 @@
      (assoc state :adx-01 {:history [adx pos-di neg-di]})]))
 
 (defn strategy-adx-02 [state ti]
-  (let [{:keys [atr rsi high-swing low-swing adx pos-di neg-di quote]} ti
+  (let [{:keys [atr adx pos-di neg-di quote]} ti
         {:keys [o h l c]} quote
         {[adx-1 pos-di-1 neg-di-1] :history} (:adx-02 state)
         trade {:mode (if (and adx-1 (> adx 20)
                               (> 3 (/ (- h l) atr)))
                        (cond
                          (and (> (- pos-di neg-di) 5)
-                              (< rsi 80)
-                              ;;(> 5 (/ (- c low-swing) atr))
                               (> c o)
                               (> pos-di pos-di-1))
                          :buy
                          (and (> (- neg-di pos-di) 5)
-                              (> rsi 20)
-                              ;;(> 5 (/ (- high-swing c) atr))
                               (< c o)
                               (> neg-di neg-di-1))
                          :sell))}]
     [(assoc ti :trade trade)
      (assoc state :adx-02 {:history [adx pos-di neg-di]})]))
 
+(defn strategy-adx-03 [state ti]
+  (let [{:keys [atr adx pos-di neg-di quote]} ti
+        {:keys [o h l c]} quote
+        {[adx-2 adx-1] :history} (:adx-03 state)
+        trade {:mode (if (and adx-1 adx-2 (> adx 15))
+                       (cond
+                         (and (> adx-1 adx-2) (> adx-1 adx))
+                         :buy
+                         (and (< adx-1 adx-2) (< adx-1 adx))
+                         :sell))}]
+    [(assoc ti :trade trade)
+     (assoc state :adx-03 {:history [adx-1 adx]})]))
+
 (defn strategy-cci-01 [state ti]
-  (let [{:keys [atr cci-20 quote]} ti
+  (let [{:keys [adx atr cci-20 quote]} ti
         {:keys [o h l c]} quote
         {[cci-20-1] :history} (:cci-01 state)
-        trade {:mode (if cci-20-1
+        trade {:mode (if (and cci-20-1 (< adx 20))
                        (cond
-                         (and (> cci-20-1 -100 cci-20))
+                         (< cci-20 -100)
                          :buy
-                         (and (< cci-20-1 100 cci-20))
+                         (> cci-20 100)
                          :sell))}]
     [(assoc ti :trade trade)
      (assoc state :cci-01 {:history [cci-20]})]))
 
 (defn strategy-adx-cci-01 [state ti]
-  (let [{:keys [adx pos-di neg-di cci-20 quote]} ti
-        {[adx-2 adx-1 pos-di-1 neg-di-1 quote-1] :history} (:adx-cci-01 state)
-        trade {:mode (if (and adx-1 adx-2 (> adx 25) (> adx adx-1))
+  (let [{:keys [atr low-swing high-swing adx pos-di neg-di cci-20 quote]} ti
+        {[adx-1 pos-di-1 neg-di-1 quote-1] :history} (:adx-cci-01 state)
+        trade {:mode (if (and adx-1 (> adx 20) (> adx adx-1))
                        (cond
-                         (and (< cci-20 100) (> pos-di neg-di)
-                              (> (:c quote) (:o quote))
-                              (> pos-di pos-di-1)) :buy
-                         (and (> cci-20 -100) (< pos-di neg-di)
-                              (< (:c quote) (:o quote))
-                              (> neg-di neg-di-1)) :sell))}]
+                         (and (< cci-20 100)
+                              (> 100 (/ (- (:c quote) low-swing) 1e-4))
+                              (> (- pos-di neg-di) 10))
+                         :buy
+                         (and (> cci-20 -100)
+                              (> 100 (/ (- high-swing (:c quote)) 1e-4))
+                              (> (- neg-di pos-di) 10))
+                         :sell))}]
     [(assoc ti :trade trade)
-     (assoc state :adx-cci-01 {:history [adx-1 adx pos-di neg-di quote]})]))
+     (assoc state :adx-cci-01 {:history [adx pos-di neg-di quote]})]))
 
 (defn strategy-adx-cci-02 [state ti]
   (let [{:keys [adx pos-di neg-di cci-20 quote]} ti
@@ -154,7 +165,7 @@
 
 (defn- setup-instrument [state ikey max-count]
   (let [ind-keys indicator-keys
-        strategy strategy-adx-01
+        strategy strategy-adx-02
         ch (a/chan 100 (comp (dedupe-quote)
                              (ind/indicators ind-keys)
                              (analyze strategy))
