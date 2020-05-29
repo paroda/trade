@@ -63,8 +63,7 @@
   (cc/GET "/chart-pi/:ikey/:tfrm/:n" [] chart-price-indicators)
   (cc/GET "/backtest/:ikey/:tfrm/:n" [] backtest-strategy)
 
-  (cc/GET "/closed-trades/:ikey" [ikey] (view/closed-trades (keyword ikey)))
-  (cc/GET "/chart-1/:ikey" [ikey] (view/chart-1 (keyword ikey))))
+  )
 
 
 ;; site-defaults for reference

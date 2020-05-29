@@ -325,9 +325,9 @@
   (spit (str (:workspace @cfg/config) "/closed-trade.edn")
         (:closed-trade @session-data))
 
-  (get-recent-prices :eur-usd "m5" #inst "2020-05-15T00:00:00.000-00:00" 5)
+  (get-recent-prices :eur-usd "H4" #inst "2020-05-15T00:00:00.000-00:00" 5)
 
-  (get-hist-prices :eur-usd "m5" #inst "2020-05-15T00:00:00.000-00:00" 5)
+  (get-hist-prices :eur-usd "H4" #inst "2020-05-15T00:00:00.000-00:00" 5)
 
   (.. (fxcm/base (:session @state))
       getSessionStatus)

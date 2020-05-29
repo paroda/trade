@@ -24,9 +24,7 @@
         {oid :id} open-order
         t (if oid (or (get-in @state [:last-order ikey :at]) (Date.)))
         odt (if t (int (/ (- (.getTime (Date.)) (.getTime t)) 60000)))
-        ;; wait time in minutes
-        order-wait 3
-        lots 10, entry 1]
+        {:keys [order-wait lots entry]} (:trade @cfg/config)]
     (cond
       ;; trade placed clear state of last-order
       (first trade)
@@ -131,13 +129,17 @@
   (reset! state nil)
   (stop)
 
-  [(:last-order @state)
-   (:trade (fxb/get-trade-status :eur-usd))
-   [[(Date.)]]
-   (->> (fxb/get-trade-status :eur-usd)
-        :closed-trade
-        (sort-by #(.getTime (:open-time %)) >)
-        (map (juxt :close-time :profit #_ :open-time)))]
+  (dissoc (fxb/get-trade-status :eur-usd) :closed-trade :prices)
+
+  (let [ts (fxb/get-trade-status :eur-usd)]
+    [(:last-order @state)
+     (:offer ts)
+     (:trade ts)
+     [[(Date.)]]
+     (->> ts
+          :closed-trade
+          (sort-by #(.getTime (:open-time %)) >)
+          (map (juxt :close-time :profit #_ :open-time)))])
 
   (->> (fxb/get-trade-status :eur-usd)
        :closed-trade

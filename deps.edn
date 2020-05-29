@@ -14,7 +14,6 @@
         ring-middleware-format {:mvn/version "0.7.4"}
         http-kit {:mvn/version "2.3.0"}}
 
-
  :aliases
  {:dev {:extra-paths ["dev"]}
 

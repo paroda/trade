@@ -6,4 +6,8 @@
         :password ""
         :connection "demo"
         :session-id ""
-        :pin ""}}
+        :pin ""}
+ :instruments {:eur-usd {:iname "EUR/USD"}}
+ :trade {:order-wait 3 ;; wait time in minutes
+         :lots 1
+         :entry 1}}
