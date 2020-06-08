@@ -26,7 +26,7 @@
     "GO"]])
 
 (defn- cross-hair []
-  [:div {:style "position:absolute;top:0;height:100%;width:100%"
+  [:div {:style "position:absolute;top:0;height:100%;width:100%;cursor:none"
          :onmousemove "javascript:
   var x = event.pageX - this.offsetLeft -20;
   var y = event.pageY - this.offsetTop -70;
