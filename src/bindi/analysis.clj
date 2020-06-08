@@ -9,7 +9,7 @@
 ;;  :inited? false}
 (defonce ^:private state (atom {:inited? false}))
 
-(def lead-ti-count 100)
+(def lead-ti-count 200)
 
 (def indicator-keys [:rsi :cci-20
                      :atr :adx :pos-di :neg-di

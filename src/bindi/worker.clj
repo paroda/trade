@@ -102,7 +102,7 @@
   ;; ignore the latest one as incomplete
   (let [quotes (butlast
                 (fxb/get-hist-prices :eur-usd ana-time-frame nil
-                                     (+ ana-max-count ana/lead-ti-count)))]
+                                     (+ 1 ana-max-count ana/lead-ti-count)))]
     (ana/put-quotes :eur-usd quotes)))
 
 (defn init []

@@ -361,7 +361,8 @@ Must be one of m1,m5,m30,H1,H4,D1")))
           ps (fxb/get-hist-prices ikey tfrm dto (+ n ana/lead-ti-count))
           tis (->> ps
                    (ind/indicators ind-keys)
-                   (ana/analyze strategy))
+                   (ana/analyze strategy)
+                   reverse (take n) reverse)
           ps (map :quote tis)
           [ti te] [(.getTime (:t (first ps))) (.getTime (:t (last ps)))]
           cts (->> (fxb/get-trade-status ikey)

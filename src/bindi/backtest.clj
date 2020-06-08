@@ -6,8 +6,6 @@
   (:import java.util.Date))
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 ;; return new trade
 (defn- evaluate-open-trade-1 [ti state quote]
   (let [{:keys [pip lot size limit stop]} (:settings state)
