@@ -18,13 +18,21 @@
 
 (defn- trade-instrument [ikey]
   (let [{:keys [atr high-swing low-swing]
+         tit :t
          {:keys [mode]} :trade} (first (ana/get-indicators ikey))
-        {:keys [offer order trade]} (fxb/get-trade-status ikey)
+        {:keys [offer order trade closed-trade]} (fxb/get-trade-status ikey)
         open-order (some #(if (false? (:closing? %)) %) order)
         {oid :id} open-order
-        t (if oid (or (get-in @state [:last-order ikey :at]) (Date.)))
-        odt (if t (int (/ (- (.getTime (Date.)) (.getTime t)) 60000)))
-        {:keys [order-wait lots entry]} (:trade @cfg/config)]
+        ot (if oid (or (get-in @state [:last-order ikey :at]) (Date.)))
+        odt (if ot (int (/ (- (.getTime (Date.)) (.getTime ot)) 60000)))
+        {:keys [order-wait lots entry]} (:trade @cfg/config)
+        ;; if already lost a trade with current trend indicator
+        ;; then consider this ti bad and wait for next
+        bad-ti? (some (fn [ct]
+                        (and (neg? (:profit ct))
+                             (> (.getTime ^Date (:open-time ct))
+                                (.getTime ^Date tit))))
+                      closed-trade)]
     (cond
       ;; trade placed clear state of last-order
       (first trade)
@@ -46,7 +54,7 @@
                                      :buy (- (:a offer) low-swing)
                                      :sell (- high-swing (:b offer))))
                               (:pip offer))))
-            oid (if (and (> stop limit 3))
+            oid (if (and (> stop limit 3) (not bad-ti?))
                   (fxb/create-order ikey mode lots entry limit stop))]
         (when oid
           (swap! state assoc-in [:last-order ikey]
