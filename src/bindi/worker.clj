@@ -10,11 +10,24 @@
             [bindi.indicator :as ind])
   (:import [java.util Date]))
 
-(defonce ^:private state (atom {:stop-chan nil}))
+(defonce ^:private state (atom {:stop-chan nil
+                                :instruments {}}))
 
 (def ana-max-count 100)
 
 (def ana-time-frame "m30")
+
+(defn pause-instrument [ikey]
+  (swap! state update :instruments
+         #(cond-> %
+            (get % [ikey :enabled?]) (assoc-in [ikey :order?] false)))
+  (get-in @state [:instruments ikey]))
+
+(defn resume-instrument [ikey]
+  (swap! state update :instruments
+         #(cond-> %
+            (get % [ikey :enabled?]) (assoc-in [ikey :order?] true)))
+  (get-in @state [:instruments ikey]))
 
 (defn- trade-instrument [ikey]
   (let [{:keys [atr high-swing low-swing]
@@ -47,7 +60,8 @@
           (log/warn "failed to cancel order, error:"
                     (.getName (type ex)) (.getMessage ex))))
       ;; new trade if no trade pending, and trade signal present
-      (and mode (not open-order))
+      (and mode (not open-order)
+           (get-in @state [:instruments ikey :order?]))
       (let [limit (int (/ atr (:pip offer)))
             stop (+ 3 (int (/ (max atr
                                    (case mode
@@ -62,16 +76,25 @@
           (log/debug "ordered:" ikey mode lots entry limit stop))))))
 
 (defn- trade []
-  ;; ignore the latest one as incomplete
-  (let [quotes (take 1 (fxb/get-hist-prices :eur-usd ana-time-frame nil 2))]
-    (ana/put-quotes :eur-usd quotes))
-  (if (let [now (.getTime (Date.))]
-        (->> (vals (fxb/get-offers))
-             (every? #(< 60000 (- now (.getTime (:t %)))))))
-    ;; stale offers data, refresh
-    (fxb/refresh-offers)
-    ;; ok to trade
-    (trade-instrument :eur-usd)))
+  (let [inst-keys (->> (:instruments @state)
+                       (filter (comp :enabled? val))
+                       (map key))
+        offers (select-keys (fxb/get-offers) inst-keys)
+        now (.getTime (Date.))]
+    ;; ensure offers are recent, within last 1 minute
+    (if (some #(< 60000 (- now (.getTime (:t %))))
+              (vals offers))
+      ;; offers are stale, refresh
+      (fxb/refresh-offers)
+      ;; ok to trade
+      (doseq [ikey inst-keys]
+        ;; update tech indicators with latest full candle
+        ;; ignore the latest candle being incomplete, take the one before it
+        (->> 2
+             (fxb/get-hist-prices ikey ana-time-frame nil)
+             (take 1)
+             (ana/put-quotes ikey))
+        (trade-instrument ikey)))))
 
 (defn stop []
   (if-let [stop-chan (:stop-chan @state)]
@@ -106,18 +129,27 @@
       (swap! state assoc :stop-chan stop-chan)
       (log/info "started worker.."))))
 
-(defn init-ind-hist []
-  ;; ignore the latest one as incomplete
-  (let [quotes (butlast
-                (fxb/get-hist-prices :eur-usd ana-time-frame nil
-                                     (+ 1 ana-max-count ana/lead-ti-count)))]
-    (ana/put-quotes :eur-usd quotes)))
-
 (defn init []
+  ;; setup trade session
   (fxb/connect-session)
   (fxb/init-session-data)
-  (ana/init ana-max-count)
-  (init-ind-hist)
+  (Thread/sleep 1000) ;; give 1 sec for session data agent to be ready
+  (if (not (fxb/session-data-inited?))
+    (throw (Exception. "Session data not initialized!")))
+  ;; initialize analysis
+  (let [inst-keys (fxb/get-instruments)]
+    (ana/init inst-keys ana-max-count)
+    (doseq [ikey inst-keys]
+      ;; initialize tech indicators using full candles only
+      ;; ignore the latest one as it is incomplete, use all before it
+      (->> (+ 1 ana-max-count ana/lead-ti-count)
+           (fxb/get-hist-prices ikey ana-time-frame nil)
+           butlast
+           (ana/put-quotes ikey)))
+    (swap! state assoc :instruments
+           (zipmap inst-keys (repeat {:enabled? true
+                                      :order? true}))))
+  ;; start the worker
   (start))
 
 (defn exit []
@@ -126,6 +158,39 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn my-summary [ikey k]
+  (case k
+    :ct1
+    (let [ts (fxb/get-trade-status ikey)]
+      [(:last-order @state)
+       (:offer ts)
+       (:trade ts)
+       [[(Date.)]]
+       (->> ts
+            :closed-trade
+            (sort-by #(.getTime (:open-time %)) >)
+            (map (juxt :close-time :profit #_ :open-time)))])
+    :p1
+    (->> (fxb/get-trade-status ikey)
+         :closed-trade
+         (sort-by #(.getTime (:close-time %)) >)
+         (partition-by #(.getDate (:close-time %)))
+         (map #(list (.getDate (:close-time (first %)))
+                     (count %)
+                     (reduce + (map :profit %)))))
+    :p2
+    (->> (fxb/get-trade-status ikey)
+         :closed-trade
+         (sort-by #(.getTime (:open-time %)) >)
+         (map (juxt :profit
+                    (fn [{:keys [close-time open-time]}]
+                      (int (/ (- (.getTime close-time)
+                                 (.getTime open-time))
+                              60000)))))
+         (map #(apply format " %6.2f %5d " %)))
+    ;; else
+    ["invalid key! should be one of:" ]))
 
 (comment
 
@@ -139,33 +204,9 @@
 
   (dissoc (fxb/get-trade-status :eur-usd) :closed-trade :prices)
 
-  (let [ts (fxb/get-trade-status :eur-usd)]
-    [(:last-order @state)
-     (:offer ts)
-     (:trade ts)
-     [[(Date.)]]
-     (->> ts
-          :closed-trade
-          (sort-by #(.getTime (:open-time %)) >)
-          (map (juxt :close-time :profit #_ :open-time)))])
+  (my-summary :eur-usd :ct1)
 
-  (->> (fxb/get-trade-status :eur-usd)
-       :closed-trade
-       (sort-by #(.getTime (:close-time %)) >)
-       (partition-by #(.getDate (:close-time %)))
-       (map #(list (.getDate (:close-time (first %)))
-                   (count %)
-                   (reduce + (map :profit %)))))
-
-  (->> (fxb/get-trade-status :eur-usd)
-       :closed-trade
-       (sort-by #(.getTime (:open-time %)) >)
-       (map (juxt :profit
-                  (fn [{:keys [close-time open-time]}]
-                    (int (/ (- (.getTime close-time)
-                               (.getTime open-time))
-                            60000)))))
-       (map #(apply format " %6.2f %5d " %)))
+  (my-summary :eur-usd :p1)
 
   (take 5 (:prices (fxb/get-trade-status :eur-usd)))
 

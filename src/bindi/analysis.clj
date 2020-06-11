@@ -77,7 +77,7 @@
         {:keys [o h l c]} quote
         {[adx-1 pos-di-1 neg-di-1] :history} (:adx-01 state)
         trade {:mode (if (and adx-1 (> adx 20)
-                              (> 3 (/ (- h l) atr)))
+                              (> 5 (/ (- h l) atr)))
                        (cond
                          (and (> (- pos-di neg-di) 5)
                               (> c o)
@@ -179,11 +179,12 @@
         (recur)))
     (assoc-in state [:data ikey] {:tis tis, :ch ch})))
 
-(defn init [max-count]
+(defn init [inst-keys max-count]
   (when-not (:inited? @state)
-    (let [init-state (-> @state
-                         (assoc :inited? true, :max-count max-count)
-                         (setup-instrument :eur-usd max-count))]
+    (let [init-state (reduce (fn [state ikey]
+                               (setup-instrument state ikey max-count))
+                             {:inited? true, :max-count max-count}
+                             inst-keys)]
       (reset! state init-state))))
 
 (defn put-quotes [ikey quotes]
