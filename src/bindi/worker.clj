@@ -20,13 +20,13 @@
 (defn pause-instrument [ikey]
   (swap! state update :instruments
          #(cond-> %
-            (get % [ikey :enabled?]) (assoc-in [ikey :order?] false)))
+            (get-in % [ikey :enabled?]) (assoc-in [ikey :order?] false)))
   (get-in @state [:instruments ikey]))
 
 (defn resume-instrument [ikey]
   (swap! state update :instruments
          #(cond-> %
-            (get % [ikey :enabled?]) (assoc-in [ikey :order?] true)))
+            (get-in % [ikey :enabled?]) (assoc-in [ikey :order?] true)))
   (get-in @state [:instruments ikey]))
 
 (defn- trade-instrument [ikey]
