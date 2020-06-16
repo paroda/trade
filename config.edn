@@ -7,7 +7,13 @@
         :connection "demo"
         :session-id ""
         :pin ""}
- :instruments {:eur-usd {:iname "EUR/USD"}}
+ ;; trade attributes can be overridden for each instrument individually
  :trade {:order-wait 3 ;; wait time in minutes
          :lots 1
-         :entry 1}}
+         :entry 1}
+ :instruments {:eur-usd {:iname "EUR/USD"
+                         :order? true ;; allow new orders
+                         ;; optional - :order-wait, :lots, :entry, etc.
+                         ;; specify here to override the trade attribute
+                         ;; for this instrument only
+                         :lots 1}}}

@@ -17,6 +17,12 @@
 
 (def ana-time-frame "m30")
 
+(defn update-instrument [ikey attr value]
+  {:pre [(#{:order-wait :lots :entry} attr)
+         (int? value)]}
+  (swap! state assoc-in [:instruments ikey attr] value)
+  (get-in @state [:instruments ikey]))
+
 (defn pause-instrument [ikey]
   (swap! state update :instruments
          #(cond-> %
@@ -38,9 +44,12 @@
         {oid :id} open-order
         ot (if oid (or (get-in @state [:last-order ikey :at]) (Date.)))
         odt (if ot (int (/ (- (.getTime (Date.)) (.getTime ot)) 60000)))
-        {:keys [order-wait lots entry]} (:trade @cfg/config)
+        ;; trade attributes, with instrument specific overrides
+        {:keys [order-wait lots entry]} (get-in @state [:instruments ikey])
         ;; if already lost a trade with current trend indicator
         ;; then consider this ti bad and wait for next
+        ;; TODO: find a better way to check time, currently using then
+        ;;       time in ti, which is period start but we should check for end
         bad-ti? (some (fn [ct]
                         (and (neg? (:profit ct))
                              (> (.getTime ^Date (:open-time ct))
@@ -79,21 +88,17 @@
   (let [inst-keys (->> (:instruments @state)
                        (filter (comp :enabled? val))
                        (map key))
-        offers (select-keys (fxb/get-offers) inst-keys)
-        now (.getTime (Date.))]
-    ;; ensure offers are recent, within last 1 minute
-    (if (some #(< 60000 (- now (.getTime (:t %))))
-              (vals offers))
-      ;; offers are stale, refresh
-      (fxb/refresh-offers)
-      ;; ok to trade
-      (doseq [ikey inst-keys]
-        ;; update tech indicators with latest full candle
-        ;; ignore the latest candle being incomplete, take the one before it
-        (->> 2
-             (fxb/get-hist-prices ikey ana-time-frame nil)
-             (take 1)
-             (ana/put-quotes ikey))
+        offers (fxb/get-offers)]
+    (doseq [ikey inst-keys]
+      ;; update tech indicators with latest full candle
+      ;; ignore the latest candle being incomplete, take the one before it
+      (->> 2
+           (fxb/get-hist-prices ikey ana-time-frame nil)
+           (take 1)
+           (ana/put-quotes ikey))
+      ;; trade only when offers are fresh (not older than 15 sec)
+      (if (> 15000 (- (.getTime (Date.))
+                      (.getTime ^Date (get-in offers [ikey :t]))))
         (trade-instrument ikey)))))
 
 (defn stop []
@@ -147,8 +152,11 @@
            butlast
            (ana/put-quotes ikey)))
     (swap! state assoc :instruments
-           (zipmap inst-keys (repeat {:enabled? true
-                                      :order? true}))))
+           (merge-with merge
+                       (zipmap inst-keys (repeat (merge {:enabled? true
+                                                         :order? true}
+                                                        (:trade @cfg/config))))
+                       (select-keys (:instruments @cfg/config) inst-keys))))
   ;; start the worker
   (start))
 
