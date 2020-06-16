@@ -1,4 +1,4 @@
-# trade
+# Automated live trading of forex with custom strategy and backtesting
 
 A tool to help make profit in forex trading.
 
