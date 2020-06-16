@@ -1,4 +1,4 @@
-# Clojure for automated live trading of forex with custom strategy and backtesting
+# My personal trade bot in Clojure to do live trading with my custom strategy
 
 A tool to help make profit in forex trading.
 
