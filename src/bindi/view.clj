@@ -385,7 +385,7 @@ Must be one of m1,m5,m30,H1,H4,D1")))
     (let [dt (* 24 3600e3)
           ps (fxb/get-hist-prices ikey wkr/ana-time-frame nil wkr/ana-max-count)
           tis (ana/get-indicators ikey)
-          {:keys [closed-trade trade offer order]} (fxb/get-trade-status ikey)
+          {:keys [account closed-trade trade offer order]} (fxb/get-trade-status ikey)
           cts (->> closed-trade
                    (filter #(< (.getTime (:t (first ps)))
                                (.getTime (:close-time %)))))
@@ -396,6 +396,9 @@ Must be one of m1,m5,m30,H1,H4,D1")))
        [:body {:style "background:#333;color:#aa9;font-family:Tahoma"}
         [:div
          [:h2 "Active Chart - Price Indicators"]
+         [:div {:style "position:absolute;right;top:10px;right:10px"}
+          (format "Account: %s, Balance: %.2f"
+                  (:id account) (:balance account))]
          [:div {:style "padding:10px"}
           [:div {:style "position:relative"}
            cview
