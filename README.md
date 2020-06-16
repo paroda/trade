@@ -1,4 +1,4 @@
-# My personal trade bot in Clojure to do live trading with my custom strategy
+# My forex trading bot in Clojure to do live trading with my custom strategy
 
 A tool to help make profit in forex trading.
 
