@@ -214,6 +214,10 @@
   (assert (session-data-inited?) "session-data not inited")
   (keys (:instruments @state)))
 
+(defn get-trading-settings []
+  (assert (session-data-inited?) "session-data not inited")
+  (:trade-settings @session-data))
+
 (defn get-offers []
   (assert (session-data-inited?) "session-data not inited")
   (:offer @session-data))
@@ -237,6 +241,7 @@
   NOTE: use for small amount (< 300) of candles.
   for larger dataset use (get-hist-prices)"
   [ikey time-frame date-to max-count]
+  (assert (session-connected?) "session not connected?")
   (fxcm/get-recent-prices (:session @state)
                           ikey time-frame nil date-to max-count))
 
@@ -244,6 +249,7 @@
   "prices are ordered oldest first to recent last.
   can be called as many time for large dataset (uses local cache)."
   [ikey time-frame date-to max-count-or-date-from]
+  (assert (session-connected?) "session not connected?")
   (let [[max-count date-from] (if (number? max-count-or-date-from)
                                 [max-count-or-date-from nil]
                                 [-1 max-count-or-date-from])]

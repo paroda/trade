@@ -12,6 +12,8 @@
          :lots 1
          :entry 1}
  :instruments {:eur-usd {:iname "EUR/USD"
+                         :spread 2
+                         :pip-cost 0.1
                          :order? true ;; allow new orders
                          ;; optional - :order-wait, :lots, :entry, etc.
                          ;; specify here to override the trade attribute

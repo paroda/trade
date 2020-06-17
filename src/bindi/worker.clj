@@ -54,7 +54,8 @@
                         (and (neg? (:profit ct))
                              (> (.getTime ^Date (:open-time ct))
                                 (.getTime ^Date tit))))
-                      closed-trade)]
+                      closed-trade)
+        {:keys [order? spread]} (get-in @state [:instruments ikey])]
     (cond
       ;; trade placed clear state of last-order
       (first trade)
@@ -69,15 +70,19 @@
           (log/warn "failed to cancel order, error:"
                     (.getName (type ex)) (.getMessage ex))))
       ;; new trade if no trade pending, and trade signal present
-      (and mode (not open-order)
-           (get-in @state [:instruments ikey :order?]))
-      (let [limit (int (/ atr (:pip offer)))
-            stop (case mode
-                   :buy (- (:a offer) low-swing)
-                   :sell (- high-swing (:b offer)))
-            stop (+ 3 (int (/ (min (* 3 atr) (max (* 2 atr) stop))
-                              (:pip offer))))
-            oid (if (and (> stop limit 3) (not bad-ti?))
+      (and mode (not open-order) order?)
+      (let [pip (:pip offer)
+            limit (int (/ atr pip))
+            [smax smin buff] [nil (* 2 limit) 3]
+            stop (cond->
+                     (int (/ (case mode
+                               :buy (- (:b offer) low-swing)
+                               :sell (- high-swing (:b offer)))
+                             pip))
+                   smax (min smax)
+                   smin (max smin)
+                   buff (+ buff))
+            oid (if (and (> stop limit (* 3 spread)) (not bad-ti?))
                   (fxb/create-order ikey mode lots entry limit stop))]
         (when oid
           (swap! state assoc-in [:last-order ikey]

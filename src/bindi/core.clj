@@ -4,7 +4,8 @@
             [bindi.config :as cfg]
             [bindi.log :as log-cfg]
             [bindi.worker :as wkr]
-            [bindi.server :as svr]))
+            [bindi.server :as svr]
+            [bindi.backtest :as bt]))
 
 (defn- gc []
   (a/go-loop []
@@ -17,6 +18,7 @@
   (cfg/init)
   (log-cfg/init)
   (wkr/init)
+  (bt/init)
   (svr/init)
   (log/info "booted my fx trading tool!"))
 
