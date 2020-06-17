@@ -72,7 +72,7 @@
       (and mode (not open-order)
            (get-in @state [:instruments ikey :order?]))
       (let [limit (int (/ atr (:pip offer)))
-            stop (+ 3 (int (/ (max atr
+            stop (+ 3 (int (/ (max (* 2 atr)
                                    (case mode
                                      :buy (- (:a offer) low-swing)
                                      :sell (- high-swing (:b offer))))
