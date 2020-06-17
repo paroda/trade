@@ -72,10 +72,10 @@
       (and mode (not open-order)
            (get-in @state [:instruments ikey :order?]))
       (let [limit (int (/ atr (:pip offer)))
-            stop (+ 3 (int (/ (max (* 2 atr)
-                                   (case mode
-                                     :buy (- (:a offer) low-swing)
-                                     :sell (- high-swing (:b offer))))
+            stop (case mode
+                   :buy (- (:a offer) low-swing)
+                   :sell (- high-swing (:b offer)))
+            stop (+ 3 (int (/ (min (* 3 atr) (max (* 2 atr) stop))
                               (:pip offer))))
             oid (if (and (> stop limit 3) (not bad-ti?))
                   (fxb/create-order ikey mode lots entry limit stop))]
