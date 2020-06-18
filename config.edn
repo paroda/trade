@@ -10,12 +10,25 @@
  ;; trade attributes can be overridden for each instrument individually
  :trade {:order-wait 3 ;; wait time in minutes
          :lots 1
-         :entry 1}
+         :entry 1
+         ;; the limit to use when placing order, as multiple of atr
+         :limit 1
+         ;; stop is decided by the high or low swings, but can be capped
+         ;; stop-max and stop-min are specified as multiples of limit
+         ;; and an additional buffer can be specified as well
+         ;; stop-buff is specified as number of pips
+         :stop-max 0.33
+         :stop-min 0.2
+         :stop-buff 3}
  :instruments {:eur-usd {:iname "EUR/USD"
                          :spread 2
                          :pip-cost 0.1
-                         :order? true ;; allow new orders
-                         ;; optional - :order-wait, :lots, :entry, etc.
-                         ;; specify here to override the trade attribute
-                         ;; for this instrument only
+                         ;; * totally suspend trading for this instrument
+                         ;;   like - :order? false ;; optional
+                         ;; * restrict trading only when atr is within bounds
+                         ;;   like - :atr-limit [min max] ;; number of pips, optional
+                         ;; * further you can specify trade attributes here
+                         ;;   to override for this instrument only
+                         ;;   any of - :order-wait, :lots, :entry
+                         :stop-max nil, :stop-min 2
                          :lots 1}}}

@@ -8,40 +8,53 @@
 
 (defonce instruments (atom {}))
 
+(defn update-instrument [ikey attr value]
+  {:pre [(case attr
+           (:limit :stop-max :stop-min :stop-buff) (or (nil? value) (number? value))
+           :atr-limit (or (nil? value)
+                          (and (coll? value)
+                               (every? #(or (nil? %) (number? %)) value)))
+           false)]}
+  (swap! instruments assoc-in [ikey attr] value)
+  (get @instruments ikey))
+
 ;; return new trade
 (defn- evaluate-open-trade [ti state quote]
-  (let [{:keys [pip spread]} (:settings state)
-        {:keys [t o h l c]} quote
-        {{:keys [mode]} :trade
+  (let [{{:keys [mode]} :trade
          :keys [atr high-swing low-swing]} ti
-        open-price c
-        limit-price (case mode
-                      :buy (+ open-price (* 1 atr))
-                      :sell (- open-price (* 1 atr))
-                      nil)
-        ;; stop-price is last swing, but capped at 2 or 3 atr
-        ;; [smax smin buff] [(* 3 atr) (* 2 atr) (* 3 pip)]
-        [smax smin buff] [nil (* 2 atr) (* 3 pip)]
-        stop-price (case mode
-                     :buy (cond-> low-swing
-                            smax (max (- open-price smax))
-                            smin (min (- open-price smin))
-                            buff (- buff))
-                     :sell (cond-> high-swing
-                             smax (min (+ open-price smax))
-                             smin (max (+ open-price smin))
-                             buff (+ buff))
-                     nil)]
-    (if (and mode limit-price stop-price
-             (< 3 (/ atr pip spread))
-             (case mode
-               :buy (< stop-price open-price limit-price)
-               :sell (> stop-price open-price limit-price)))
-      {:mode mode
-       :open-time t
-       :open-price open-price
-       :limit-price limit-price
-       :stop-price stop-price})))
+        {:keys [pip limit stop-max stop-min stop-buff spread]
+         [atr-low atr-high] :atr-limit} (:settings state)
+        atr-pips (/ atr pip)
+        limit (* limit atr)]
+    (if (and mode
+             (or (not atr-high) (> atr-high atr-pips))
+             (or (not atr-low) (< atr-low atr-pips))
+             (> limit (* 3 spread pip)))
+      (let [{:keys [t o h l c]} quote
+            open-price c
+            limit-price (case mode
+                          :buy (+ open-price limit)
+                          :sell (- open-price limit))
+            stop-max (if stop-max (* limit stop-max))
+            stop-min (if stop-min (* limit stop-min))
+            stop-buff (if stop-buff (* stop-buff pip))
+            stop-price (case mode
+                         :buy (cond-> low-swing
+                                stop-max (max (- open-price stop-max))
+                                stop-min (min (- open-price stop-min))
+                                stop-buff (- stop-buff))
+                         :sell (cond-> high-swing
+                                 stop-max (min (+ open-price stop-max))
+                                 stop-min (max (+ open-price stop-min))
+                                 stop-buff (+ stop-buff)))]
+        (if (case mode ;; this check is needed if stop-min is not specified
+              :buy (< stop-price open-price)
+              :sell (> stop-price open-price))
+          {:mode mode
+           :open-time t
+           :open-price open-price
+           :limit-price limit-price
+           :stop-price stop-price})))))
 
 ;; return closed-trade
 (defn- evaluate-close-trade [ti state quote]
@@ -105,7 +118,7 @@
             ti nil
             state nil]
        (if-let [t2 (some-> tis second :t .getTime)]
-         (let [qs-p (filter #(> t2 (.getTime (:t %))) qs)]
+         (let [qs-p (take-while #(> t2 (.getTime (:t %))) qs)]
            (recur (drop (count qs-p) qs)
                   (rest tis)
                   (first tis)
@@ -117,9 +130,13 @@
 (defn init []
   (->> (fxb/get-offers)
        (map (fn [[ikey {:keys [pip]}]]
-              [ikey (-> (get-in @cfg/config [:instruments ikey])
-                        (select-keys [:spread :pip-cost])
-                        (assoc :pip pip))]))
+              [ikey (merge (select-keys (:trade @cfg/config)
+                                        [:limit :stop-max :stop-min :stop-buff])
+                           (-> (get-in @cfg/config [:instruments ikey])
+                               (select-keys [:spread :pip-cost
+                                             :limit :stop-max :stop-min :stop-buff
+                                             :atr-limit])
+                               (assoc :pip pip)))]))
        (into {})
        (reset! instruments)))
 
@@ -127,34 +144,23 @@
 
   (fxb/session-connected?)
 
+  instruments
+  (update-instrument :eur-gbp :stop-max nil)
+
   (let [res (test-strategy ana/strategy-adx-01
                            ana/indicator-keys
-                           :jpn225
+                           :eur-gbp ;;:eur-usd ;;:jpn225
                            "m30"
                            #inst "2020-05-24T00:00:00.000-00:00"
-                           1000)]
+                           4000)]
     [(dissoc (second res) :closed-trades)
      (->> (:closed-trades (second res))
-          (map (juxt :profit :open-time)))
+          ;; (map (juxt :profit :open-time))
+          count)
      (first (:closed-trades (second res)))])
 
-  ;; adx-01    05/24 1000 m30 =>  333    90 (adx-30)
-  ;; adx-01    04/24 1000 m30 => -267  -107
-  ;; adx-01    03/24 1000 m30 =>  367   171
-  ;; adx-01    02/24 1000 m30 =>   35
-  ;; adx-01    01/24 1000 m30 =>   64
-  ;; adx-01 19/12/24 1000 m30 => -154
-  ;; adx-01    11/24 1000 m30 =>  -10
-  ;; adx-01    10/24 1000 m30 =>   94 ..
-  ;; adx-01    09/24 1000 m30 => -167
-  ;; adx-01    08/24 1000 m30 => 12
-  ;; adx-01    07/24 1000 m30 => -110
-  ;; adx-01    06/24 1000 m30 => 141
-  ;; adx-01    05/24 1000 m30 => 107
-  ;; adx-01    04/24 1000 m30 => -106
-  ;; adx-01    03/24 1000 m30 => -127
-  ;; adx-01    02/24 1000 m30 => -99
-  ;; adx-01    01/24 1000 m30 => -42
+  ;; adx-01 :eur-usd m30/1000 5/24 => 24
+  ;;                     10000     => 13
 
   (-> nil
       (as-> $ (simulate {:trade {:mode :buy}} $

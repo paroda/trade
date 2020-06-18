@@ -16,10 +16,16 @@
 (def ana-max-count 100)
 
 (def ana-time-frame "m30")
+(def ana-time-frame-ms (* 30 60 1000))
 
 (defn update-instrument [ikey attr value]
-  {:pre [(#{:order-wait :lots :entry} attr)
-         (int? value)]}
+  {:pre [(case attr
+           (:order-wait :lots :entry) (int? value)
+           (:limit :stop-max :stop-min :stop-buff) (or (nil? value) (number? value))
+           :atr-limit (or (nil? value)
+                          (and (coll? value)
+                               (every? #(or (nil? %) (number? %)) value)))
+           false)]}
   (swap! state assoc-in [:instruments ikey attr] value)
   (get-in @state [:instruments ikey]))
 
@@ -48,14 +54,15 @@
         {:keys [order-wait lots entry]} (get-in @state [:instruments ikey])
         ;; if already lost a trade with current trend indicator
         ;; then consider this ti bad and wait for next
-        ;; TODO: find a better way to check time, currently using then
-        ;;       time in ti, which is period start but we should check for end
+        tit-eff (+ ana-time-frame-ms (.getTime ^Date tit))
         bad-ti? (some (fn [ct]
                         (and (neg? (:profit ct))
-                             (> (.getTime ^Date (:open-time ct))
-                                (.getTime ^Date tit))))
+                             (> (.getTime ^Date (:open-time ct)) tit-eff)))
                       closed-trade)
-        {:keys [order? spread]} (get-in @state [:instruments ikey])]
+        ;; trade settings for this instrument
+        {:keys [order? limit stop-max stop-min stop-buff spread]
+         [atr-low atr-high] :atr-limit}
+        (get-in @state [:instruments ikey])]
     (cond
       ;; trade placed clear state of last-order
       (first trade)
@@ -70,24 +77,29 @@
           (log/warn "failed to cancel order, error:"
                     (.getName (type ex)) (.getMessage ex))))
       ;; new trade if no trade pending, and trade signal present
-      (and mode (not open-order) order?)
+      (and mode (not open-order) order? (not bad-ti?))
       (let [pip (:pip offer)
-            limit (int (/ atr pip))
-            [smax smin buff] [nil (* 2 limit) 3]
-            stop (cond->
-                     (int (/ (case mode
-                               :buy (- (:b offer) low-swing)
-                               :sell (- high-swing (:b offer)))
-                             pip))
-                   smax (min smax)
-                   smin (max smin)
-                   buff (+ buff))
-            oid (if (and (> stop limit (* 3 spread)) (not bad-ti?))
-                  (fxb/create-order ikey mode lots entry limit stop))]
-        (when oid
-          (swap! state assoc-in [:last-order ikey]
-                 {:at (Date.), :id oid, :limit limit, :stop stop})
-          (log/debug "ordered:" ikey mode lots entry limit stop))))))
+            atr-pips (/ atr pip)
+            limit (int (* limit atr-pips))]
+        (if (and (or (not atr-high) (> atr-high atr-pips))
+                 (or (not atr-low) (< atr-low atr-pips))
+                 (> limit (* 3 spread)))
+          (let [stop-max (if stop-max (int (* limit stop-max)))
+                stop-min (if stop-min (int (* limit stop-min)))
+                stop (cond->
+                         (int (/ (case mode
+                                   :buy (- (:b offer) low-swing)
+                                   :sell (- high-swing (:b offer)))
+                                 pip))
+                       stop-max (min stop-max)
+                       stop-min (max stop-min)
+                       stop-buff (+ stop-buff))
+                oid (if (pos? stop) ;; this check is needed if stop-min is not specified
+                      (fxb/create-order ikey mode lots entry limit stop))]
+            (when oid
+              (swap! state assoc-in [:last-order ikey]
+                     {:at (Date.), :id oid, :limit limit, :stop stop})
+              (log/debug "ordered:" ikey mode lots entry limit stop))))))))
 
 (defn- trade []
   (let [inst-keys (->> (:instruments @state)
