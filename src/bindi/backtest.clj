@@ -31,7 +31,9 @@
              (or (not atr-low) (< atr-low atr-pips))
              (> limit (* 3 spread pip)))
       (let [{:keys [t o h l c]} quote
-            open-price c
+            open-price (case mode
+                         :buy (+ (* pip spread) c)
+                         :sell c)
             limit-price (case mode
                           :buy (+ open-price limit)
                           :sell (- open-price limit))
@@ -59,14 +61,15 @@
 ;; return closed-trade
 (defn- evaluate-close-trade [ti state quote]
   (let [{:keys [limit-price stop-price open-price mode]} (:trade state)
-        {:keys [pip pip-cost]} (:settings state)
-        {:keys [t o h l c]} quote]
+        {:keys [pip pip-cost spread]} (:settings state)
+        {:keys [t o h l c]} quote
+        s (* pip spread)]
     (if-let [close-price
              (case mode
                :buy (if (> h limit-price) limit-price
                         (if (< l stop-price) stop-price))
-               :sell (if (< l limit-price) limit-price
-                         (if (> h stop-price) stop-price)))]
+               :sell (if (< (+ s l) limit-price) limit-price
+                         (if (> (+ s h) stop-price) stop-price)))]
       (let [gain (* pip-cost (/ (- close-price open-price) pip))]
         (assoc (:trade state)
                :closed? true
@@ -94,10 +97,12 @@
                          :closed-trades ()})]
     (if (:trade state)
       (if-let [closed-trade (evaluate-close-trade ti state quote)]
-        (update-state state closed-trade)
+        (cond-> (update-state state closed-trade)
+          (neg? (:profit closed-trade)) (assoc :bad-ti ti))
         ;; no action
         state)
-      (if-let [open-trade (evaluate-open-trade ti state quote)]
+      (if-let [open-trade (if-not (identical? ti (:bad-ti state))
+                            (evaluate-open-trade ti state quote))]
         (update-state state open-trade)
         ;; no action
         state))))
@@ -145,14 +150,16 @@
   (fxb/session-connected?)
 
   instruments
-  (update-instrument :eur-gbp :stop-max nil)
+  (update-instrument :usoil :atr-limit [30 40])
+  (swap! instruments update :usoil assoc
+         :limit 1, :stop-max 5, :stop-min 1, :atr-limit [20 100])
 
   (let [res (test-strategy ana/strategy-adx-01
                            ana/indicator-keys
-                           :eur-gbp ;;:eur-usd ;;:jpn225
+                           :usoil
                            "m30"
-                           #inst "2020-05-24T00:00:00.000-00:00"
-                           4000)]
+                           #inst "2020-06-21T00:00:00.000-00:00"
+                           20000)]
     [(dissoc (second res) :closed-trades)
      (->> (:closed-trades (second res))
           ;; (map (juxt :profit :open-time))

@@ -575,14 +575,15 @@
     (.size ardr)))
 
 (defn get-hist-prices
-  "*timeframe*: m1: 1 minute, m5: 5 minute, H1: 1 hour, D1: 1 day
+  "*timeframe*: t1, m1, m5, m10, m15, m30, H1, H2, H4, H6, D1 and W1
   - candle day closes at 22:00 UTC or 21:00 UTC depending on daylight saving
   - use 22:00 for from-date to include
   - use 20:00 for to-date to exclude"
   [communicator ikey timeframe date-from date-to max-count]
   (assert (:ready? @communicator) "PriceHistoryCommunicator not ready!")
   (assert (get-in @communicator [:instruments ikey]) "Invalid instrument")
-  (assert (#{"m1" "m5" "m30" "H1" "H4" "D1"} timeframe) "Invalid timeframe")
+  (assert (#{"t1" "m1" "m5" "m10" "m15" "m30" "H1" "H2" "H4" "H6" "D1" "W1"} timeframe)
+          "Invalid timeframe")
   (assert (or date-from max-count) "at least date-from or max-count required")
   (let [max-count (or max-count -1)
         iname (get-in @communicator [:instruments ikey :iname])
